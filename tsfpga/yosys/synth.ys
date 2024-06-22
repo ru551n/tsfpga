@@ -1,0 +1,6 @@
+ ghdl -a --std=08 spi_master_pkg.vhd
+ ghdl -a --std=08 spi_master.vhd
+ 
+ ghdl --std=08 spi_master
+ synth -lut 4
+ ltp -noff
