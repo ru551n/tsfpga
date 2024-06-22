@@ -2,6 +2,7 @@ from argparse import Namespace
 from multiprocessing import Process
 from pathlib import Path
 from shutil import which
+import subprocess
 from typing import Any, List, Optional
 
 from tsfpga.module_list import ModuleList
@@ -9,21 +10,10 @@ from vunit.source_file import SourceFile
 from vunit.ui import VUnit
 from vunit.vhdl_standard import VHDLStandard
 
+from tsfpga.hdl_file import HdlFile
+
 # TODO: Verilog support
-# TODO: Result parsing (both for logic levels and )
-# TODO
-
-def run_commands(commands: List[str], cwd: Path):
-    cmd = ""
-    for command in commands:
-        cmd += f"{command};"
-    
-    try:
-        Process(args=cmd, cwd=cwd, shell=True).consume_output()
-    except Process.NonZeroExitCode:
-        return False
-    return True
-
+# TODO: Result parsing (utilization, logic levels and static timing)
 
 class YosysNetlistBuild:
     def __init__(
@@ -31,7 +21,6 @@ class YosysNetlistBuild:
         name: str,
         modules: "ModuleList",
         top: str,
-        lut_arch: Optional[int] = None,
         synth_command: Optional[str] = None,
         generics: Optional[dict[str, Any]] = None,
         ghdl_path: Optional[Path] = None,
@@ -41,7 +30,6 @@ class YosysNetlistBuild:
     
         self.name = name
         self.modules = modules.copy()
-        self.lut_arch = lut_arch
         self.synth_command = synth_command
         self.static_generics = {} if generics is None else generics.copy()
         self._ghdl_path = ghdl_path
@@ -70,6 +58,7 @@ class YosysNetlistBuild:
                 library_name=module.library_name, allow_duplicate=True
             )
             for hdl_file in module.get_synthesis_files():
+                assert hdl_file.type == HdlFile.Type.VHDL, "Only VHDL currently supported"
                 vunit_library.add_source_file(hdl_file.path)
                 
         return vunit_proj
@@ -93,6 +82,14 @@ class YosysNetlistBuild:
             raise FileNotFoundError("Could not find yosys on PATH")
     
         return Path(which_ghdl).resolve()
+    
+    def _run_process(self, cmd: List[str], cwd: Path):
+        # try:
+        #     Process(args=cmd, cwd=cwd).consume_output()
+        # except:
+        #     return False
+        subprocess.run(cmd, cwd=cwd)
+        return True
     
     def _get_top_file(self) -> Optional[SourceFile]:
         """
@@ -132,8 +129,6 @@ class YosysNetlistBuild:
     def _get_synth_command(self):
         if self.synth_command is None:
             command = "synth"
-            if self.lut_arch is not None:
-                command += f" -lut {self.lut_arch}"
         else:
             command = self.synth_command
             
@@ -144,17 +139,16 @@ class YosysNetlistBuild:
     
     def _ghdl_analyze_file(self, file : SourceFile, output_path : Path) -> bool:
         
-        cmd = ['ghdl','-a',self._get_ghdl_standard_option(), file.name]
+        file_path = Path(file.name).absolute()
         
-        assert file.is_vhdl, "Only VHDL currently supported"
+        # cmd = ['ghdl','-a',self._get_ghdl_standard_option(), f"--work={file.library.name}", file_path]
+        cmd = ['ghdl','-a',self._get_ghdl_standard_option(), file_path]
         
-        try:
-            Process(args=cmd, cwd=output_path).consume_output()
-        except Process.NonZeroExitCode:
-            return False
-        return True
+        return self._run_process(cmd, output_path)
     
     def _ghdl_analyze(self, output_path : Path) -> bool:
+        
+        success = False
         
         for file in self._get_required_synthesis_files():
             success = self._ghdl_analyze_file(file, output_path)
@@ -173,11 +167,36 @@ class YosysNetlistBuild:
         # Set synthesis command
         script.append(self._get_synth_command())
         
+        # Static timing analysys
+        script.append("sta")
+        
+        # Create script command
         script_str = ""
         for cmd in script:
-            script_str += cmd + ";"
+            script_str += cmd + "; "
             
         return script_str
     
-    def _run_script(self, script : str):
-        pass
+    def _run_yosys(self, output_path: Path) -> bool:
+        
+        script = self._create_script()
+        
+        cmd = []
+        cmd.append(self._get_yosys_path())
+        cmd.append("-m")
+        cmd.append("ghdl")
+        cmd.append("-p")
+        cmd.append(script)
+        
+        success = self._run_process(cmd, output_path)
+        return success
+    
+    def build(self, output_path: Path) -> bool:
+        
+        success = self._ghdl_analyze(output_path)
+        if not success:
+            return False
+        
+        success = self._run_yosys(output_path=output_path)
+        
+        return success

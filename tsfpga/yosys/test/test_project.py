@@ -9,8 +9,7 @@ from vunit.vhdl_standard import VHDLStandard
 
 def test_no_modules_doesnt_find_top_level():
     
-    modules = ModuleList()
-    proj = YosysNetlistBuild(name="foo", top="foo_top", modules=modules, lut_arch=6)
+    proj = YosysNetlistBuild(name="foo", top="foo_top", modules=ModuleList())
     
     files = None
     with pytest.raises(ValueError) as exception_info:
@@ -22,19 +21,15 @@ def test_no_modules_doesnt_find_top_level():
 def test_create_script():
 
     for vhdl_standard in ["1993", "2002", "2008", "2019"]:
-        for lut_arch in [None, 4, 6]:
-            for synth_command in [None, "synth_xilinx"]:
-                proj = YosysNetlistBuild(name="hest", modules=ModuleList(), top="hest_top", lut_arch=lut_arch, synth_command=synth_command, vhdl_standard=VHDLStandard(vhdl_standard))
-                script = proj._create_script()
+        for synth_command in [None, "synth_xilinx"]:
+            proj = YosysNetlistBuild(name="hest", modules=ModuleList(), top="hest_top", synth_command=synth_command, vhdl_standard=VHDLStandard(vhdl_standard))
+            script = proj._create_script()
                 
-                expected_script = f"ghdl --std={vhdl_standard[2:]} hest_top;"
+            expected_script = f"ghdl --std={vhdl_standard[2:]} hest_top;"
                 
-                if synth_command:
-                    expected_script += synth_command + ";"
-                else:
-                    if lut_arch is None:
-                        expected_script += f"synth;"
-                    else:
-                        expected_script += f"synth -lut {lut_arch};"
-                        
-                assert script == expected_script
+            if synth_command:
+                expected_script += synth_command + ";"
+            else:
+                expected_script += f"synth;"
+
+            assert script == expected_script
