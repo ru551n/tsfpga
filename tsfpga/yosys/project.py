@@ -12,10 +12,8 @@ from vunit.vhdl_standard import VHDLStandard
 
 from tsfpga.hdl_file import HdlFile
 
-# TODO: Verilog support
 # TODO: Result parsing (utilization, logic levels and static timing)
 # TODO: Generics support
-
 
 class YosysNetlistBuild:
     def __init__(
@@ -29,6 +27,11 @@ class YosysNetlistBuild:
         yosys_path: Optional[Path] = None,
         vhdl_standard: VHDLStandard = VHDLStandard("2008"),
     ):
+        # GHDL output path, GHDL products will be placed here
+        self.GHDL_OUT = "ghdl"
+        
+        # Yosys output path, Yosys products will be placed here
+        self.YOSYS_OUT = "yosys"
 
         self.name = name
         self.modules = modules.copy()
@@ -49,11 +52,9 @@ class YosysNetlistBuild:
 
         self._vunit_proj = self._create_vunit_project(modules)
 
-        # Libraries to be used when loading via GHDL plugin in Yosys
-        self._libraries = []
-        for module in modules:
-            if module.get_synthesis_files():
-                self._libraries.append(module.name)
+        # Order in which libraries are compiled, and hence the order
+        # in which they need to be loaded into Yosys.
+        self._library_compile_order = []
 
     def _create_vunit_project(sel, modules: ModuleList) -> VUnit:
 
@@ -127,7 +128,7 @@ class YosysNetlistBuild:
 
     def _get_required_synthesis_files(self) -> List[SourceFile]:
         """
-        Create a list of of only the required files for the top level.
+        Create a list of of only the required files for the top level in the correct compile order.
         Assumes top level file has same name as the source file it is defined in.
         """
         top_file = self._get_top_file()
@@ -138,7 +139,12 @@ class YosysNetlistBuild:
             )
 
         implementation_subset = self._vunit_proj.get_implementation_subset([top_file])
-        return self._vunit_proj.get_compile_order(implementation_subset)
+        
+        for file in reversed(implementation_subset):
+            if file.library.name not in self._library_compile_order:
+                self._library_compile_order.insert(0, file.library.name)
+        
+        return implementation_subset
 
     def _get_synth_command(self) -> str:
         if self.synth_command is None:
@@ -156,15 +162,18 @@ class YosysNetlistBuild:
     def _ghdl_analyze_file(self, file: SourceFile, output_path: Path) -> bool:
 
         file_path = Path(file.name).absolute()
-
+        
         cmd = [
             "ghdl",
             "-a",
             self._get_ghdl_standard_option(),
+            f"--workdir={self.GHDL_OUT}",
+            f"-P={self.GHDL_OUT}",
             f"--work={file.library.name}",
-            file_path,
+            file_path.as_posix(),
         ]
-
+        
+        print(f"Running GHDL Analyze on {file.name}")
         return self._run_process(cmd, output_path)
 
     def _ghdl_analyze(self, output_path: Path) -> bool:
@@ -184,10 +193,10 @@ class YosysNetlistBuild:
 
         script = []
 
-        # Load previously analyzed VHDL design libraries
-        for library in self._libraries:
-            script.append(f"ghdl {self._get_ghdl_standard_option()} --work={library}")
-
+        # Load GHDL top level library
+        top_library = self._get_top_file().library.name
+        script.append(f"ghdl {self._get_ghdl_standard_option()} --work={top_library} --workdir={self.GHDL_OUT} -P={self.GHDL_OUT}")
+            
         # TODO: Load verilog files here!
 
         # Set synthesis command
@@ -198,7 +207,7 @@ class YosysNetlistBuild:
 
         # Create script command
         script_str = "; ".join(script)
-
+        
         return script_str
 
     def _run_yosys(self, output_path: Path) -> bool:
@@ -211,6 +220,10 @@ class YosysNetlistBuild:
         return success
 
     def build(self, output_path: Path) -> bool:
+        
+        assert not output_path.exists(), "Output directory already exists"
+        Path(output_path / self.GHDL_OUT).mkdir(parents=True, exist_ok=True)
+        Path(output_path / self.YOSYS_OUT).mkdir(parents=True, exist_ok=True)
 
         success = self._ghdl_analyze(output_path)
         if not success:
