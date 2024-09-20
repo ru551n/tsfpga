@@ -28,12 +28,9 @@ like this:
     from tsfpga.build_project_list import BuildProjectList
     from tsfpga.module import get_modules
 
-    my_modules_folders = [
-        Path("path/to/my/modules"),
-    ]
-    modules = get_modules(my_modules_folders)
+    modules = get_modules(modules_folder=Path("path/to/my/modules"))
 
-    build_path = Path("my_generated_build_projects")
+    build_path = Path("generated/my_build_projects")
 
     projects = BuildProjectList(modules=modules, project_filters="*")
     projects.create_unless_exists(project_paths=build_path, num_parallel_builds=4)
@@ -125,7 +122,7 @@ a list of :class:`build project objects <.VivadoProject>`.
 .. literalinclude:: ../../tsfpga/examples/modules/artyz7/module_artyz7.py
    :caption: Example project creation
    :language: python
-   :lines: 9-
+   :lines: 9-78
    :linenos:
 
 There is a lot going on here, so lets go through what happens in ``get_build_projects()``.

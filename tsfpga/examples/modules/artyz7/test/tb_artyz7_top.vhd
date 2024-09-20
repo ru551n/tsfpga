@@ -27,7 +27,8 @@ use reg_file.reg_file_pkg.reg_t;
 use reg_file.reg_operations_pkg.all;
 
 use work.artyz7_top_pkg.all;
-use work.top_level_sim_pkg.all;
+use work.block_design_mock_pkg.all;
+use work.block_design_pkg.all;
 
 
 entity tb_artyz7_top is
@@ -38,12 +39,12 @@ end entity;
 
 architecture tb of tb_artyz7_top is
 
-  signal clk_ext : std_ulogic := '0';
+  signal ext_clk : std_ulogic := '0';
 
 begin
 
   test_runner_watchdog(runner, 200 us);
-  clk_ext <= not clk_ext after 8 ns;
+  ext_clk <= not ext_clk after 8 ns;
 
 
   ------------------------------------------------------------------------------
@@ -57,24 +58,25 @@ begin
     rnd.InitSeed(rnd'instance_name);
 
     if run("test_register_read_write") then
-      write_reg(net, 0, beef, base_address => regs_base_addresses(0));
-      check_reg_equal(net, 0, beef, base_address => regs_base_addresses(0));
+      write_reg(net, 0, beef, base_address => regs_base_addresses(resync_ext_regs_idx));
+      check_reg_equal(net, 0, beef, base_address => regs_base_addresses(resync_ext_regs_idx));
 
-      -- Write different value to same register in another register map.
-      -- Should be in another clock domain to verify CDC.
-      write_reg(net, 0, dead, base_address => regs_base_addresses(ddr_buffer_regs_idx));
-      check_reg_equal(net, 0, dead, base_address => regs_base_addresses(ddr_buffer_regs_idx));
+      write_reg(net, 0, dead, base_address => regs_base_addresses(resync_pl_regs_idx));
+      check_reg_equal(net, 0, dead, base_address => regs_base_addresses(resync_pl_regs_idx));
 
-      check_reg_equal(net, 0, beef, base_address => regs_base_addresses(0));
+      check_reg_equal(net, 0, beef, base_address => regs_base_addresses(resync_ext_regs_idx));
 
     elsif run("test_ddr_buffer") then
       run_ddr_buffer_test(
-        net=>net, memory=>axi_memory, rnd=>rnd, regs_base_address=>ddr_buffer_regs_base_addr
+        net=>net,
+        memory=>axi_memory,
+        rnd=>rnd,
+        regs_base_address=>regs_base_addresses(ddr_buffer_regs_idx)
       );
       check_ddr_buffer_status_counter_equal(
         net=>net,
         expected=>ddr_buffer_base_addresses_array_length,
-        base_address=>ddr_buffer_regs_base_addr
+        base_address=>regs_base_addresses(ddr_buffer_regs_idx)
       );
 
     end if;
@@ -87,8 +89,12 @@ begin
 
   ------------------------------------------------------------------------------
   dut : entity work.artyz7_top
+    generic map (
+      is_in_simulation => true
+    )
     port map (
-      clk_ext => clk_ext
+      enable_led => (others => '1'),
+      ext_clk => ext_clk
     );
 
 end architecture;
