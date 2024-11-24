@@ -21,12 +21,12 @@ from vunit.test.runner import TestRunner
 
 # First party libraries
 from tsfpga.system_utils import create_directory, read_last_lines_of_file
+from tsfpga.vivado.project import VivadoProject
 
 if TYPE_CHECKING:
     # Local folder libraries
     from .module_list import ModuleList
     from .vivado import build_result
-    from .vivado.project import VivadoProject
 
 
 class BuildProjectList:
@@ -108,8 +108,9 @@ class BuildProjectList:
         """
         build_wrappers = []
         for project in self.projects:
-            build_wrapper = BuildProjectCreateWrapper(project, **kwargs)
-            build_wrappers.append(build_wrapper)
+            if isinstance(project, VivadoProject):
+                build_wrapper = BuildProjectCreateWrapper(project, **kwargs)
+                build_wrappers.append(build_wrapper)
 
         return self._run_build_wrappers(
             projects_path=projects_path,
@@ -246,7 +247,8 @@ class BuildProjectList:
         """
         build_wrappers = []
         for project in self.projects:
-            build_wrappers.append(BuildProjectOpenWrapper(project))
+            if isinstance(project, VivadoProject):
+                build_wrappers.append(BuildProjectOpenWrapper(project))
 
         return self._run_build_wrappers(
             projects_path=projects_path,

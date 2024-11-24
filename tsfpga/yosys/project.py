@@ -1,18 +1,24 @@
+# Standard libraries
 from argparse import Namespace
 from pathlib import Path
 from shutil import which
 import subprocess
 from typing import Any, List, Optional
 
-from tsfpga.module_list import ModuleList
+# Third party libraries
 from vunit.ui.source import SourceFile
 from vunit.ui import VUnit
 from vunit.vhdl_standard import VHDLStandard
+from vunit.ostools import Process
+
+# First party libraries
+from tsfpga.module_list import ModuleList
+from tsfpga.system_utils import create_directory
+from tsfpga.vivado.build_result import BuildResult
 
 # TODO: Result parsing (utilization, logic levels and static timing)
 # TODO: Generics support
 # TODO: Multiple libraries
-# TODO: VHDL in Verilog
 
 class YosysNetlistBuild:
     def __init__(
@@ -24,14 +30,10 @@ class YosysNetlistBuild:
         generics: Optional[dict[str, Any]] = None,
         ghdl_path: Optional[Path] = None,
         yosys_path: Optional[Path] = None,
+        defined_at: Optional[Path] = None,
         vhdl_standard: VHDLStandard = VHDLStandard("2008"),
+        **other_arguments: Any
     ):
-        # GHDL output path, GHDL products will be placed here
-        self.GHDL_OUT = "ghdl"
-        
-        # Yosys output path, Yosys products will be placed here
-        self.YOSYS_OUT = "yosys"
-
         self.name = name
         self.modules = modules.copy()
 
@@ -42,10 +44,13 @@ class YosysNetlistBuild:
         self.static_generics = {} if generics is None else generics.copy()
         self._ghdl_path = ghdl_path
         self._yosys_path = yosys_path
+        self.defined_at = defined_at
+        self.other_arguments = None if other_arguments is None else other_arguments.copy()
 
         self.top = top
 
         self.is_netlist_build = True
+        self.analyze_synthesis_timing = True
 
         self._vhdl_standard = vhdl_standard
 
@@ -56,6 +61,37 @@ class YosysNetlistBuild:
         self._library_compile_order = []
         
         self._implementation_subset = None
+    
+    def open(self):
+        """
+        Dummy since roject can't be opened.
+        """
+        raise RuntimeError("Yosys netlist project can't be opened")
+    
+    def __str__(self) -> str:
+        result = f"{self.name}\n"
+
+        if self.defined_at is not None:
+            result += f"Defined at: {self.defined_at.resolve()}\n"
+
+        result += f"Type:       {self.__class__.__name__}\n"
+        result += f"Top level:  {self.top}\n"
+
+        if self.static_generics:
+            generics = self._dict_to_string(self.static_generics)
+        else:
+            generics = "-"
+        result += f"Generics:   {generics}\n"
+
+        if self.other_arguments:
+            result += f"Arguments:  {self._dict_to_string(self.other_arguments)}\n"
+
+        return result
+    
+    @staticmethod
+    def _dict_to_string(data: dict[str, Any]) -> str:
+        return ", ".join([f"{name}={value}" for name, value in data.items()])
+
 
     def _create_vunit_project(sel, modules: ModuleList) -> VUnit:
 
@@ -88,37 +124,24 @@ class YosysNetlistBuild:
 
     def _get_yosys_path(self) -> Path:
         if self._yosys_path is not None:
-            return self._yosys_path.resolve()
+            return self._yosys_path.resolve().as_posix()
 
         which_yosys = which("yosys")
         if which_yosys is None:
             raise FileNotFoundError("Could not find yosys on PATH")
 
-        return Path(which_yosys).resolve()
-
-    def _run_process(self, cmd: List[str], cwd: Path):
-        # try:
-        #     Process(args=cmd, cwd=cwd).consume_output()
-        # except:
-        #     return False
-        subprocess.run(cmd, cwd=cwd)
-        return True
+        return Path(which_yosys).resolve().as_posix()
 
     def _get_top_file(self) -> Optional[SourceFile]:
         """
         Returns top level, assumes file is named the same as top level entity.
         Top level must be VHDL.
-
-        Args:
-            vunit_proj (VUnit): _description_
-
-        Returns:
-            Optional[SourceFile]: File which contains the top level
         """
+        
         top_file_pattern = "*" + self.top + ".vhd"
 
-        vhd_top_file = self._vunit_proj.get_source_file(top_file_pattern)
-
+        vhd_top_file = self._vunit_proj.get_source_file(top_file_pattern, library_name=self.name)
+        
         return vhd_top_file
 
     def _get_required_synthesis_files(self) -> List[SourceFile]:
@@ -150,48 +173,50 @@ class YosysNetlistBuild:
 
     def _get_ghdl_standard_option(self) -> str:
         return "--std=" + self._vhdl_standard._standard[2:]
-
-    def _ghdl_analyze_file(self, file: SourceFile, output_path: Path) -> bool:
-
-        file_path = Path(file.name).resolve().absolute()
+    
+    def _ghdl_analyze_file(self, file: SourceFile, cwd: Path) -> bool:
+        file_path = Path(file.name).resolve().absolute().as_posix()
         
         cmd = [
             "ghdl",
             "-a",
             self._get_ghdl_standard_option(),
-            f"--workdir={self.GHDL_OUT}",
-            f"-P={self.GHDL_OUT}",
+            f"--workdir={cwd}",
+            f"-P={cwd}",
             f"--work={file.library.name}",
-            file_path.as_posix(),
+            file_path,
         ]
         
-        print(f"Running GHDL Analyze on {file.name}")
-        return self._run_process(cmd, output_path)
+        result = subprocess.run(cmd, cwd=cwd)
+        
+        return result.returncode == 0
+    
+    def _get_vhdl_files(self) -> List[SourceFile]:
+        files = self._get_required_synthesis_files()
+        return [file for file in files if file.name.endswith(".vhd")]
+    
+    def _get_verilog_files(self) -> List[SourceFile]:
+        files = self._get_required_synthesis_files()
+        return [file for file in files if file.name.endswith(".v")]
+
 
     def _ghdl_analyze(self, output_path: Path) -> bool:
-
         success = False
 
-        for file in self._get_required_synthesis_files():
-            if file.name.endswith(".vhd"):
-                success = self._ghdl_analyze_file(file, output_path)
-                if not success:
-                    return success
+        for file in self._get_vhdl_files():
+            success = self._ghdl_analyze_file(file, output_path)
+            if not success:
+                return success
 
         return success
     
-    def _get_verilog_files(self) -> List[SourceFile]:
-        print(self._implementation_subset)
-        files = self._get_required_synthesis_files()
-        return [file for file in files if file.name.endswith((".v", ".sv"))]
-
-    def _create_script(self) -> str:
+    def _create_script(self, ghdl_output_path: Path) -> str:
 
         script = []
 
         # Load GHDL top level library
         top_library = self._get_top_file().library.name
-        script.append(f"ghdl {self._get_ghdl_standard_option()} --work={top_library} --workdir={self.GHDL_OUT} -P={self.GHDL_OUT}")
+        script.append(f"ghdl {self._get_ghdl_standard_option()} --work={top_library} --workdir={ghdl_output_path} -P={ghdl_output_path}")
             
         for file in self._get_verilog_files():
             file_path = Path(file.name).resolve().absolute().as_posix()
@@ -201,32 +226,42 @@ class YosysNetlistBuild:
         # Set synthesis command
         script.append(self._get_synth_command())
 
-        # Static timing analysys
-        script.append("sta")
-
         # Create script command
         script_str = "; ".join(script)
         
         return script_str
 
-    def _run_yosys(self, output_path: Path) -> bool:
+    def _run_yosys(self, output_path: Path, ghdl_output_path: Path) -> BuildResult:
 
-        script = self._create_script()
+        script = self._create_script(ghdl_output_path)
 
         cmd = [self._get_yosys_path(), "-m", "ghdl", "-p", script]
-
-        success = self._run_process(cmd, output_path)
-        return success
-
-    def build(self, output_path: Path) -> bool:
         
-        Path(output_path / self.GHDL_OUT).mkdir(parents=True, exist_ok=True)
-        Path(output_path / self.YOSYS_OUT).mkdir(parents=True, exist_ok=True)
+        result = BuildResult(self.name)
 
-        success = self._ghdl_analyze(output_path)
+        try:
+            Process(args=cmd, cwd=output_path).consume_output()
+        except Process.NonZeroExitCode:
+            result.success = False
+        else:
+            result.success = True
+            
+        return result
+
+
+    def build(self, 
+        project_path: Path,
+        output_path: Path,
+        **kwargs
+    ) -> bool:
+        
+        ghdl_output_path = output_path / "ghdl"
+        create_directory(ghdl_output_path, empty=True)
+
+        success = self._ghdl_analyze(ghdl_output_path)
         if not success:
-            return False
-
-        success = self._run_yosys(output_path)
+            raise RuntimeError("GHDL analysis faield")
+        
+        success = self._run_yosys(output_path, ghdl_output_path)
 
         return success
