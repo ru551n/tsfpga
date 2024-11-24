@@ -135,19 +135,16 @@ def test_no_modules_doesnt_find_top_level():
 
 def test_create_script(dummy_module):
 
-    modules = ModuleList()
-    modules.append(dummy_module)
-
     for vhdl_standard in ["1993", "2002", "2008", "2019"]:
         for synth_command in [None, "synth_xilinx"]:
             proj = YosysNetlistBuild(
                 name="hest",
-                modules=modules,
+                top_module=dummy_module,
                 top="hest",
                 synth_command=synth_command,
                 vhdl_standard=VHDLStandard(vhdl_standard),
             )
-            script = proj._create_script()
+            script = proj._create_script(Path("ghdl"))
 
             if synth_command:
                 expected_synth = synth_command
@@ -156,27 +153,22 @@ def test_create_script(dummy_module):
 
             expected_script = f"""\
 ghdl --std={vhdl_standard[2:]} --work=apa --workdir=ghdl -P=ghdl; \
-{expected_synth} -top hest; \
-sta"""
+{expected_synth} -top hest"""
 
             assert script == expected_script
 
 
 def test_create_script_with_mixed_sources(mixed_module):
 
-    modules = ModuleList()
-    modules.append(mixed_module)
-
     proj = YosysNetlistBuild(
         name="hest",
-        modules=modules,
+        top_module=mixed_module,
         top="vhdl_top_with_mixed",
         vhdl_standard=VHDLStandard("2008"),
     )
-    script = proj._create_script()
-    
+    script = proj._create_script(Path("ghdl"))
+
     assert "ghdl --std=08 --work=hest --workdir=ghdl -P=ghdl;" in script
     assert "read_verilog" in script
     assert "src/verilog_module.v;" in script
-    assert "synth -top vhdl_top_with_mixed;" in script
-    assert "sta" in script
+    assert "synth -top vhdl_top_with_mixed" in script
