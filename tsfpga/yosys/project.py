@@ -1,19 +1,18 @@
 from argparse import Namespace
-from multiprocessing import Process
 from pathlib import Path
 from shutil import which
 import subprocess
 from typing import Any, List, Optional
 
 from tsfpga.module_list import ModuleList
-from vunit.source_file import SourceFile
+from vunit.ui.source import SourceFile
 from vunit.ui import VUnit
 from vunit.vhdl_standard import VHDLStandard
 
-from tsfpga.hdl_file import HdlFile
-
 # TODO: Result parsing (utilization, logic levels and static timing)
 # TODO: Generics support
+# TODO: Multiple libraries
+# TODO: VHDL in Verilog
 
 class YosysNetlistBuild:
     def __init__(
@@ -44,7 +43,7 @@ class YosysNetlistBuild:
         self._ghdl_path = ghdl_path
         self._yosys_path = yosys_path
 
-        self.top = name + "_top" if top is None else top
+        self.top = top
 
         self.is_netlist_build = True
 
@@ -55,6 +54,8 @@ class YosysNetlistBuild:
         # Order in which libraries are compiled, and hence the order
         # in which they need to be loaded into Yosys.
         self._library_compile_order = []
+        
+        self._implementation_subset = None
 
     def _create_vunit_project(sel, modules: ModuleList) -> VUnit:
 
@@ -71,7 +72,6 @@ class YosysNetlistBuild:
                 library_name=module.library_name, allow_duplicate=True
             )
             for hdl_file in module.get_synthesis_files():
-                assert hdl_file.type == HdlFile.Type.VHDL, "Only VHDL currently supported"
                 vunit_library.add_source_file(hdl_file.path)
 
         return vunit_proj
@@ -106,7 +106,8 @@ class YosysNetlistBuild:
 
     def _get_top_file(self) -> Optional[SourceFile]:
         """
-        Returns top level, assumes file is named the same as top level entity
+        Returns top level, assumes file is named the same as top level entity.
+        Top level must be VHDL.
 
         Args:
             vunit_proj (VUnit): _description_
@@ -116,39 +117,30 @@ class YosysNetlistBuild:
         """
         top_file_pattern = "*" + self.top + ".vhd"
 
-        try:
-            vhd_top_file = self._vunit_proj.get_source_file(top_file_pattern)
-        except ValueError:
-            vhd_top_file = None
+        vhd_top_file = self._vunit_proj.get_source_file(top_file_pattern)
 
-        if vhd_top_file is not None:
-            return vhd_top_file
-
-        return None
+        return vhd_top_file
 
     def _get_required_synthesis_files(self) -> List[SourceFile]:
         """
         Create a list of of only the required files for the top level in the correct compile order.
         Assumes top level file has same name as the source file it is defined in.
         """
-        top_file = self._get_top_file()
 
-        if top_file is None:
-            raise ValueError(
-                "Could not determine top level, multiple or no files containing top level found"
-            )
-
-        implementation_subset = self._vunit_proj.get_implementation_subset([top_file])
-        
-        for file in reversed(implementation_subset):
-            if file.library.name not in self._library_compile_order:
-                self._library_compile_order.insert(0, file.library.name)
-        
-        return implementation_subset
+        if self._implementation_subset is None:
+            top_file = self._get_top_file()
+            self._implementation_subset = self._vunit_proj.get_implementation_subset([top_file])
+                
+            for file in reversed(self._implementation_subset):
+                if file.library.name not in self._library_compile_order:
+                    self._library_compile_order.insert(0, file.library.name)
+            
+                
+        return self._implementation_subset
 
     def _get_synth_command(self) -> str:
         if self.synth_command is None:
-            command = f"synth"
+            command = "synth"
         else:
             command = self.synth_command
 
@@ -161,7 +153,7 @@ class YosysNetlistBuild:
 
     def _ghdl_analyze_file(self, file: SourceFile, output_path: Path) -> bool:
 
-        file_path = Path(file.name).absolute()
+        file_path = Path(file.name).resolve().absolute()
         
         cmd = [
             "ghdl",
@@ -180,7 +172,6 @@ class YosysNetlistBuild:
 
         success = False
 
-        # TODO: This can be optimized to reduce the number of GHDL calls, further reducing runtime.
         for file in self._get_required_synthesis_files():
             if file.name.endswith(".vhd"):
                 success = self._ghdl_analyze_file(file, output_path)
@@ -188,6 +179,11 @@ class YosysNetlistBuild:
                     return success
 
         return success
+    
+    def _get_verilog_files(self) -> List[SourceFile]:
+        print(self._implementation_subset)
+        files = self._get_required_synthesis_files()
+        return [file for file in files if file.name.endswith((".v", ".sv"))]
 
     def _create_script(self) -> str:
 
@@ -197,7 +193,10 @@ class YosysNetlistBuild:
         top_library = self._get_top_file().library.name
         script.append(f"ghdl {self._get_ghdl_standard_option()} --work={top_library} --workdir={self.GHDL_OUT} -P={self.GHDL_OUT}")
             
-        # TODO: Load verilog files here!
+        for file in self._get_verilog_files():
+            file_path = Path(file.name).resolve().absolute().as_posix()
+            
+            script.append(f"read_verilog {file_path}")
 
         # Set synthesis command
         script.append(self._get_synth_command())
@@ -221,7 +220,6 @@ class YosysNetlistBuild:
 
     def build(self, output_path: Path) -> bool:
         
-        assert not output_path.exists(), "Output directory already exists"
         Path(output_path / self.GHDL_OUT).mkdir(parents=True, exist_ok=True)
         Path(output_path / self.YOSYS_OUT).mkdir(parents=True, exist_ok=True)
 
@@ -229,6 +227,6 @@ class YosysNetlistBuild:
         if not success:
             return False
 
-        success = self._run_yosys(output_path=output_path)
+        success = self._run_yosys(output_path)
 
         return success
