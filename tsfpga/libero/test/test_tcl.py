@@ -114,6 +114,36 @@ def test_no_constraints_gives_no_import_files_sdc():
     assert "import_files -sdc" not in _get_tcl()
 
 
+def test_io_pdc_constraint():
+    constraints = [Constraint(file=Path("apa_io.pdc"))]
+    tcl = _get_tcl(constraints=constraints)
+    constraint_file = to_tcl_path(Path("apa_io.pdc"))
+
+    assert f"import_files -io_pdc {{{constraint_file}}}" in tcl
+    assert (
+        f"organize_tool_files -tool {{PLACEROUTE}} -file {{{constraint_file}}} "
+        "-module {top::work}" in tcl
+    )
+    assert "organize_tool_files -tool {SYNTHESIZE}" not in tcl
+    assert "organize_tool_files -tool {VERIFYTIMING}" not in tcl
+
+
+def test_fp_pdc_constraint_is_guessed_from_file_name():
+    constraints = [Constraint(file=Path("apa_fp.pdc"))]
+    tcl = _get_tcl(constraints=constraints)
+    constraint_file = to_tcl_path(Path("apa_fp.pdc"))
+
+    assert f"import_files -fp_pdc {{{constraint_file}}}" in tcl
+
+
+def test_pdc_constraint_not_used_in_implementation_is_not_organized():
+    constraints = [Constraint(file=Path("apa_io.pdc"), used_in_implementation=False)]
+    tcl = _get_tcl(constraints=constraints)
+
+    assert "import_files -io_pdc" in tcl
+    assert "organize_tool_files" not in tcl
+
+
 def test_scoped_constraint_raises_not_implemented_error():
     constraints = [Constraint(file=Path("apa.sdc"), scoped_constraint=True)]
     with pytest.raises(NotImplementedError):
@@ -126,7 +156,7 @@ def test_constraint_non_default_processing_order_raises_not_implemented_error():
         _get_tcl(constraints=constraints)
 
 
-def test_non_sdc_constraint_raises_not_implemented_error():
+def test_non_sdc_or_pdc_constraint_raises_not_implemented_error():
     constraints = [Constraint(file=Path("apa.xdc"))]
     with pytest.raises(NotImplementedError):
         _get_tcl(constraints=constraints)

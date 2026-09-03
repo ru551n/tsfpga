@@ -44,8 +44,9 @@ class LiberoProject:
         * Generics/parameters are set right before synthesis using
           ``set_option -hdl_param -set <name> <value>``, and only VHDL literal syntax is
           supported. See :meth:`.LiberoTcl._add_generics`.
-        * Only ``.sdc`` timing constraints are supported, not pin/floorplanning ``.pdc``
-          constraints, scoped constraints, or non-default processing order.
+        * Both ``.sdc`` timing constraints and ``.pdc`` pin/floorplanning constraints are
+          supported. Scoped constraints and a non-default processing order are not supported.
+          See :meth:`.LiberoTcl._add_constraints`.
         * IP cores (the Libero "vault"/SmartDesign ecosystem) are not supported.
         * :attr:`.BuildResult.synthesis_size` / ``implementation_size`` are not populated, since
           this requires a resource-utilization report parser that has not yet been implemented.
@@ -93,7 +94,7 @@ class LiberoProject:
                 .. warning::
                     See class docstring for limitations.
             constraints: Constraints that will be applied to the project.
-                Only ``.sdc`` files are supported at this time. See class docstring.
+                Both ``.sdc`` and ``.pdc`` files are supported. See class docstring.
             tcl_sources: A list of TCL files. Use for e.g. project settings.
             build_step_hooks: Build step hooks that will be applied to the project.
                 Since Libero SoC has no native per-step Tcl hook property, these are emulated by

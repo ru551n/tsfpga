@@ -176,8 +176,22 @@ import_files \\
     def _add_constraints(top: str, constraints: list[Constraint]) -> str:
         """
         .. note::
-            Only ``.sdc`` timing constraints are supported at this time.
-            Pin/IO and floorplanning constraints (``.pdc``) are **not yet supported**.
+            Both ``.sdc`` timing constraints and ``.pdc`` pin/floorplanning constraints are
+            supported.
+
+            For a ``.pdc`` file, whether it is an I/O constraint file (``-io_pdc``) or a
+            floorplanning constraint file (``-fp_pdc``) is guessed from the file name: a file
+            whose name (without suffix) ends with ``"_fp"`` is treated as a floorplanning
+            constraint, while every other ``.pdc`` file is treated as an I/O constraint.
+            This is a heuristic based on the naming convention used in Microchip's own example
+            projects, and has **not** been verified against a real Libero SoC installation.
+
+            A ``.pdc`` file is only associated with the ``PLACEROUTE`` tool, since ``.pdc``
+            constraints are not consumed by ``SYNTHESIZE``/``VERIFYTIMING`` (unlike ``.sdc``).
+            The ``used_in_synthesis``/``used_in_implementation`` flags are hence ignored for
+            ``.pdc`` files, apart from ``used_in_implementation`` gating whether the file is
+            associated with ``PLACEROUTE`` at all.
+
             Scoped constraints and a non-default processing order are **not yet supported**,
             since Libero SoC has no directly corresponding mechanism.
         """
@@ -202,28 +216,62 @@ import_files \\
                 )
 
             constraint_file = to_tcl_path(constraint.file)
-            if not constraint_file.endswith(".sdc"):
+
+            if constraint_file.endswith(".sdc"):
+                tcl += LiberoTcl._sdc_constraint_tcl(
+                    constraint=constraint,
+                    constraint_file=constraint_file,
+                    module_argument=module_argument,
+                )
+            elif constraint_file.endswith(".pdc"):
+                tcl += LiberoTcl._pdc_constraint_tcl(
+                    constraint=constraint,
+                    constraint_file=constraint_file,
+                    module_argument=module_argument,
+                )
+            else:
                 raise NotImplementedError(
-                    "Only '.sdc' constraint files are supported by the Libero SoC plugin at this "
-                    f"time. Got: {constraint.file}"
+                    "Only '.sdc' and '.pdc' constraint files are supported by the Libero SoC "
+                    f"plugin at this time. Got: {constraint.file}"
                 )
 
-            tcl += f"import_files -sdc {{{constraint_file}}}\n"
+        return f"{tcl}\n"
 
-            if constraint.used_in_synthesis:
+    @staticmethod
+    def _sdc_constraint_tcl(
+        constraint: Constraint, constraint_file: str, module_argument: str
+    ) -> str:
+        tcl = f"import_files -sdc {{{constraint_file}}}\n"
+
+        if constraint.used_in_synthesis:
+            tcl += (
+                f"organize_tool_files -tool {{SYNTHESIZE}} -file {{{constraint_file}}} "
+                f"{module_argument} -input_type {{constraint}}\n"
+            )
+
+        if constraint.used_in_implementation:
+            for tool_name in ("PLACEROUTE", "VERIFYTIMING"):
                 tcl += (
-                    f"organize_tool_files -tool {{SYNTHESIZE}} -file {{{constraint_file}}} "
+                    f"organize_tool_files -tool {{{tool_name}}} -file {{{constraint_file}}} "
                     f"{module_argument} -input_type {{constraint}}\n"
                 )
 
-            if constraint.used_in_implementation:
-                for tool_name in ("PLACEROUTE", "VERIFYTIMING"):
-                    tcl += (
-                        f"organize_tool_files -tool {{{tool_name}}} -file {{{constraint_file}}} "
-                        f"{module_argument} -input_type {{constraint}}\n"
-                    )
+        return tcl
 
-        return f"{tcl}\n"
+    @staticmethod
+    def _pdc_constraint_tcl(
+        constraint: Constraint, constraint_file: str, module_argument: str
+    ) -> str:
+        pdc_flag = "-fp_pdc" if constraint.file.stem.endswith("_fp") else "-io_pdc"
+        tcl = f"import_files {pdc_flag} {{{constraint_file}}}\n"
+
+        if constraint.used_in_implementation:
+            tcl += (
+                f"organize_tool_files -tool {{PLACEROUTE}} -file {{{constraint_file}}} "
+                f"{module_argument} -input_type {{constraint}}\n"
+            )
+
+        return tcl
 
     def build(  # noqa: PLR0913
         self,
