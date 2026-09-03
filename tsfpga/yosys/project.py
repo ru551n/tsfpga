@@ -31,8 +31,6 @@ from .utilization_parser import YosysUtilizationParser
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from vunit.ui.source import SourceFile
-
     from tsfpga.module import BaseModule
     from tsfpga.module_list import ModuleList
     from tsfpga.vivado.build_result_checker import SizeChecker
@@ -48,12 +46,17 @@ class YosysNetlistBuild:
     This is a great tool for getting quick feedback on the resource utilization of a design, or
     a sub-component of a design, during development.
 
-    The top level must be a VHDL entity.
     Verilog and SystemVerilog source files found among the modules' synthesis files are read
     directly by Yosys (bypassing GHDL) and may be instantiated from VHDL as unbound components,
     as long as the component name matches the Verilog/SystemVerilog module name.
     This is useful for e.g. vendor IP delivered as Verilog, instantiated from an otherwise
     VHDL design.
+
+    The ``top`` is typically a VHDL entity, in which case all of its VHDL dependencies are found
+    automatically via the compile order.
+    It can also be a Verilog/SystemVerilog module (or the design can have no VHDL at all), in
+    which case any VHDL entities that shall be instantiated from it (or from other VHDL
+    entities) must be explicitly listed using the ``vhdl_entities`` argument.
 
     .. note::
         Requires GHDL, Yosys, and the ``ghdl-yosys-plugin`` module to be installed and
@@ -88,6 +91,7 @@ class YosysNetlistBuild:
         name: str,
         modules: ModuleList,
         top: str | None = None,
+        vhdl_entities: list[str] | None = None,
         generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue]
         | None = None,
         build_result_checkers: list[SizeChecker] | None = None,
@@ -110,6 +114,17 @@ class YosysNetlistBuild:
                 Only VHDL source files are considered, since the build uses the GHDL front end.
             top: Name of top level entity.
                 If left out, the top level name will be inferred from the ``name``.
+                Is typically a VHDL entity, but can also be a Verilog/SystemVerilog module -- see
+                ``vhdl_entities`` below.
+            vhdl_entities: Only used if ``top`` is not a VHDL entity (i.e. if it is a
+                Verilog/SystemVerilog module, or if the design has no VHDL at all).
+                A list of the names of the VHDL entities that shall be made available for
+                instantiation from the non-VHDL top level (or from other VHDL entities), since
+                there is in that case no single VHDL top level to automatically find these
+                dependencies from.
+                Not used, and shall be left as ``None``, if ``top`` is a VHDL entity, since in
+                that case all of its VHDL dependencies are found automatically via the compile
+                order.
             generics: A dict with generics values (name: value). Use this parameter
                 for "static" generics that do not change between multiple builds of this
                 project.
@@ -173,6 +188,7 @@ class YosysNetlistBuild:
         self.name = name
         self.modules = modules.copy()
         self.top = name + "_top" if top is None else top
+        self._vhdl_entities = [] if vhdl_entities is None else list(vhdl_entities)
         self.static_generics = {} if generics is None else generics.copy()
         self.build_result_checkers = (
             [] if build_result_checkers is None else build_result_checkers.copy()
@@ -187,9 +203,8 @@ class YosysNetlistBuild:
         self._ghdl_plugin_path = ghdl_plugin_path
         self._ghdl_prefix = ghdl_prefix
 
-        # Lazily created/cached. See '_get_vunit_project' and '_get_top_level_module'.
+        # Lazily created/cached. See '_get_vunit_project'.
         self._vunit_proj: VUnit | None = None
-        self._top_level_module: BaseModule | None = None
 
     def project_file(self, project_path: Path) -> Path:
         """
@@ -229,41 +244,48 @@ class YosysNetlistBuild:
 
         return self._vunit_proj
 
-    def _get_top_level_module(self) -> BaseModule:
-        if self._top_level_module is None:
-            top_level_modules = [
-                module
-                for module in self.modules
-                for hdl_file in module.get_synthesis_files(
-                    include_verilog_files=False, include_systemverilog_files=False
-                )
-                if hdl_file.path.stem == self.top
-            ]
+    def _find_module_for_vhdl_entity(self, entity_name: str) -> BaseModule | None:
+        """
+        Arguments:
+            entity_name: Name of a VHDL entity.
 
-            if len(top_level_modules) == 0:
-                raise ValueError(f'Could not find a VHDL source file for top level "{self.top}".')
-            if len(top_level_modules) > 1:
-                raise ValueError(f'Found multiple VHDL source files for top level "{self.top}".')
+        Return: The module containing the VHDL source file for the given entity name, or
+            ``None`` if no such VHDL source file is found in the modules of this build.
+        """
+        modules_for_entity = [
+            module
+            for module in self.modules
+            for hdl_file in module.get_synthesis_files(
+                include_verilog_files=False, include_systemverilog_files=False
+            )
+            if hdl_file.path.stem == entity_name
+        ]
 
-            self._top_level_module = top_level_modules[0]
+        if len(modules_for_entity) > 1:
+            raise ValueError(f'Found multiple VHDL source files for entity "{entity_name}".')
 
-        return self._top_level_module
-
-    def _get_top_source_file(self) -> SourceFile:
-        library_name = self._get_top_level_module().library_name
-        top_file_pattern = f"*/{self.top}.vhd"
-
-        return self._get_vunit_project().get_source_file(
-            top_file_pattern, library_name=library_name
-        )
+        return modules_for_entity[0] if modules_for_entity else None
 
     def _get_synthesis_files_in_compile_order(self) -> list[tuple[str, str]]:
         """
         Return: A list of tuples ``(file_path, library_name)`` in the order they need to be
             analyzed by GHDL.
         """
-        top_source_file = self._get_top_source_file()
-        compile_order = self._get_vunit_project().get_implementation_subset([top_source_file])
+        vunit_proj = self._get_vunit_project()
+        top_level_module = self._find_module_for_vhdl_entity(self.top)
+
+        if top_level_module is None:
+            # The 'top' is not a VHDL entity (e.g. it is a Verilog/SystemVerilog module, or the
+            # design has no VHDL at all). There is no single VHDL top level to compute an
+            # implementation subset relative to, so analyze all the VHDL source files in the
+            # modules of this build instead.
+            compile_order = vunit_proj.get_compile_order()
+        else:
+            top_file_pattern = f"*/{self.top}.vhd"
+            top_source_file = vunit_proj.get_source_file(
+                top_file_pattern, library_name=top_level_module.library_name
+            )
+            compile_order = vunit_proj.get_implementation_subset([top_source_file])
 
         return [
             (Path(source_file.name).resolve().as_posix(), source_file.library.name)
@@ -406,22 +428,88 @@ class YosysNetlistBuild:
         flatten_flag = " -flatten" if self._needs_explicit_flatten_flag else ""
         return f"{self.synth_command} -top {self.top}{flatten_flag}"
 
+    def _get_ghdl_elaborate_command(
+        self, workdir: Path, entity_name: str, library_name: str, generic_arguments: str
+    ) -> str:
+        parts = [
+            "ghdl",
+            f"--std={self._vhdl_standard}",
+            f"--workdir={workdir}",
+            f"-P={workdir}",
+            f"--work={library_name}",
+        ]
+        if generic_arguments:
+            parts.append(generic_arguments)
+        parts.append(entity_name)
+
+        return " ".join(parts)
+
+    def _get_ghdl_commands(
+        self,
+        workdir: Path,
+        all_generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue],
+    ) -> list[str]:
+        """
+        Return: A list of Yosys ``ghdl`` commands that elaborate the VHDL entities of this
+            build, making them available to Yosys.
+        """
+        generic_arguments = " ".join(
+            f"-g{name}={_get_ghdl_generic_value(value)}" for name, value in all_generics.items()
+        )
+
+        top_level_module = self._find_module_for_vhdl_entity(self.top)
+        if top_level_module is not None:
+            # The 'top' is a VHDL entity: elaborate it directly. GHDL will pull in everything it
+            # depends on, including any Verilog/SystemVerilog modules read by
+            # '_get_read_verilog_command', which are bound by name to unbound VHDL component
+            # instantiations.
+            return [
+                self._get_ghdl_elaborate_command(
+                    workdir=workdir,
+                    entity_name=self.top,
+                    library_name=top_level_module.library_name,
+                    generic_arguments=generic_arguments,
+                )
+            ]
+
+        if all_generics:
+            raise ValueError(
+                "Generics are only supported when 'top' is a VHDL entity. "
+                f'"{self.top}" is not a VHDL entity in the given modules. '
+                "Did you mean to use the 'vhdl_entities' argument instead?"
+            )
+
+        # The 'top' is a Verilog/SystemVerilog module (or the design has no VHDL at all).
+        # Elaborate each of the explicitly listed 'vhdl_entities' individually, so that they
+        # become available (under their own entity name) for Yosys's 'hierarchy' pass to bind
+        # to instantiations from the Verilog/SystemVerilog top level (or from other VHDL
+        # entities). Any entity that ends up unused is pruned by Yosys.
+        ghdl_commands = []
+        for entity_name in self._vhdl_entities:
+            module = self._find_module_for_vhdl_entity(entity_name)
+            if module is None:
+                raise ValueError(
+                    f'Could not find a VHDL source file for entity "{entity_name}" '
+                    '(listed in "vhdl_entities").'
+                )
+
+            ghdl_commands.append(
+                self._get_ghdl_elaborate_command(
+                    workdir=workdir,
+                    entity_name=entity_name,
+                    library_name=module.library_name,
+                    generic_arguments=generic_arguments,
+                )
+            )
+
+        return ghdl_commands
+
     def _get_yosys_script(
         self,
         workdir: Path,
         all_generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue],
         utilization_report_file: Path,
     ) -> str:
-        top_library = self._get_top_level_module().library_name
-
-        generic_arguments = " ".join(
-            f"-g{name}={_get_ghdl_generic_value(value)}" for name, value in all_generics.items()
-        )
-        ghdl_command = (
-            f"ghdl --std={self._vhdl_standard} --workdir={workdir} -P={workdir} "
-            f"--work={top_library} {generic_arguments} {self.top}"
-        )
-
         commands = []
 
         # Read any Verilog/SystemVerilog source files before elaborating the VHDL, so that Yosys
@@ -430,8 +518,9 @@ class YosysNetlistBuild:
         if read_verilog_command is not None:
             commands.append(read_verilog_command)
 
+        commands += self._get_ghdl_commands(workdir=workdir, all_generics=all_generics)
+
         commands += [
-            ghdl_command,
             self._get_synth_command(),
             f"tee -o {to_yosys_path(utilization_report_file)} stat",
         ]

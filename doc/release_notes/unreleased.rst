@@ -15,4 +15,7 @@ Added
 * Add :class:`.BlockRams` build result checker for a generic, architecture-independent block RAM
   count, usable with any of the ``Yosys*NetlistBuild`` classes above.
 * Add support for mixed VHDL/Verilog/SystemVerilog designs in the ``Yosys*NetlistBuild`` classes
-  above, as long as the top level is a VHDL entity.
+  above, where a VHDL top level instantiates unbound Verilog/SystemVerilog modules.
+* Add support for a Verilog/SystemVerilog top level (or a design with no VHDL top level at all)
+  in the ``Yosys*NetlistBuild`` classes above, via the new ``vhdl_entities`` argument to
+  :meth:`.YosysNetlistBuild.__init__`.

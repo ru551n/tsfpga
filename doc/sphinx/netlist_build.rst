@@ -103,12 +103,24 @@ via the `ghdl-yosys-plugin <https://github.com/ghdl/ghdl-yosys-plugin>`__.
 `GHDL <https://ghdl.github.io/ghdl/>`__ is used as the VHDL front end, so the whole flow is
 Vivado-free.
 
-The top level must be a VHDL entity.
+The ``top`` level is typically a VHDL entity, in which case all of its VHDL dependencies are
+found automatically by resolving the compile order.
 Any Verilog and SystemVerilog source files found among the modules are read directly by Yosys
 (bypassing GHDL), and may be instantiated from the VHDL design as unbound components, as long as
 the component name matches the Verilog/SystemVerilog module name.
 This is useful for e.g. vendor IP delivered as Verilog, instantiated from an otherwise VHDL
 design.
+
+The ``top`` level can also be a Verilog/SystemVerilog module (or the design can have no VHDL top
+level at all).
+In that case there is no single VHDL top level to automatically resolve dependencies from, so the
+names of the VHDL entities that shall be made available for instantiation from the non-VHDL top
+level (or from other VHDL entities) must be listed explicitly using the ``vhdl_entities`` argument
+to :meth:`.YosysNetlistBuild.__init__`.
+Each listed entity is elaborated individually by GHDL, and bound by name to the corresponding
+component/module instantiation by Yosys, just like the Verilog/SystemVerilog submodules described
+above.
+Note that build-time and static generics are only supported when ``top`` is a VHDL entity.
 
 This is done using the :class:`.YosysNetlistBuild` class, or one of the architecture-specific
 subclasses that target a certain vendor's primitives via a specific Yosys ``synth_*`` command:

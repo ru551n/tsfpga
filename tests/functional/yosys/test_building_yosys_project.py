@@ -337,6 +337,100 @@ end architecture;
     assert sum(build_result.synthesis_size.values()) > 0
 
 
+def test_building_verilog_top_with_vhdl_entities(tmp_path):
+    """
+    Build a Yosys netlist project where a Verilog top level instantiates VHDL entities.
+    Since there is no VHDL top level to automatically resolve dependencies from, the VHDL
+    entities are listed explicitly via the 'vhdl_entities' argument. Verifies that they are
+    elaborated by GHDL and bound to the unbound Verilog module instantiations by name.
+    """
+    module_folder = tmp_path / "modules" / "apa"
+
+    create_file(
+        module_folder / "src" / "test_proj_top.v",
+        """\
+module test_proj_top (
+    input  wire clk,
+    input  wire increment,
+    output wire [7:0] count,
+    output wire flag
+);
+
+  wire [7:0] count_a;
+  wire [7:0] count_b;
+
+  counter_a counter_a_inst (
+    .clk(clk),
+    .increment(increment),
+    .count(count_a)
+  );
+
+  counter_b counter_b_inst (
+    .clk(clk),
+    .increment(increment),
+    .count(count_b)
+  );
+
+  assign count = count_a;
+  assign flag = count_b[7];
+
+endmodule
+""",
+    )
+
+    for entity_name in ["counter_a", "counter_b"]:
+        create_file(
+            module_folder / "src" / f"{entity_name}.vhd",
+            f"""
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+entity {entity_name} is
+  port (
+    clk : in std_ulogic;
+    increment : in std_ulogic;
+    count : out std_ulogic_vector(7 downto 0)
+  );
+end entity;
+
+architecture a of {entity_name} is
+  signal count_int : unsigned(7 downto 0) := (others => '0');
+begin
+
+  count <= std_logic_vector(count_int);
+
+  main : process
+  begin
+    wait until rising_edge(clk);
+
+    if increment = '1' then
+      count_int <= count_int + 1;
+    end if;
+  end process;
+
+end architecture;
+""",
+        )
+
+    modules = get_modules(modules_folder=module_folder.parent)
+    project = YosysNetlistBuild(
+        name="test_proj",
+        modules=modules,
+        top="test_proj_top",
+        vhdl_entities=["counter_a", "counter_b"],
+        ghdl_plugin_path=GHDL_PLUGIN_PATH,
+        ghdl_prefix=GHDL_PREFIX,
+    )
+
+    project_path = tmp_path / "yosys"
+    assert project.create(project_path)
+
+    build_result = project.build(project_path)
+    assert build_result.success
+    assert sum(build_result.synthesis_size.values()) > 0
+
+
 def test_building_resource_counter_example_module_netlist_projects(tmp_path):
     """
     Build the netlist projects defined by the 'resource_counter' example module, to make sure
