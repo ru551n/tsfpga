@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from tsfpga.vivado.common import to_tcl_path
 
+from .common import get_mss_configurator_path
 from .generics import get_libero_tcl_generic_value
 
 if TYPE_CHECKING:
@@ -21,6 +22,8 @@ if TYPE_CHECKING:
     from tsfpga.constraint import Constraint
     from tsfpga.module_list import ModuleList
     from tsfpga.vivado.generics import BitVectorGenericValue, StringGenericValue
+
+    from .mss import MssConfiguration
 
 
 class LiberoTcl:
@@ -48,6 +51,8 @@ class LiberoTcl:
         hdl: str = "VHDL",
         constraints: list[Constraint] | None = None,
         tcl_sources: list[Path] | None = None,
+        mss_configurations: list[MssConfiguration] | None = None,
+        mss_configurator_path: Path | None = None,
         other_arguments: dict[str, Any] | None = None,
     ) -> str:
         other_arguments = {} if other_arguments is None else other_arguments
@@ -64,6 +69,11 @@ new_project \
 -die_voltage {{{die_voltage}}}
 
 """
+        tcl += self._add_mss_components(
+            project_folder=project_folder,
+            mss_configurations=mss_configurations,
+            mss_configurator_path=mss_configurator_path,
+        )
         tcl += self._add_module_source_files(modules=modules, other_arguments=other_arguments)
         tcl += self._add_tcl_sources(tcl_sources)
         tcl += self._add_ip_cores(modules=modules, other_arguments=other_arguments)
@@ -86,6 +96,55 @@ set_root -module {{{top}::work}}
 save_project
 """
         return tcl
+
+    @staticmethod
+    def _add_mss_components(
+        project_folder: Path,
+        mss_configurations: list[MssConfiguration] | None,
+        mss_configurator_path: Path | None,
+    ) -> str:
+        r"""
+        Generate and import Microcontroller Subsystem (MSS) components.
+
+        .. warning::
+            This has been developed against reference designs published by Microchip on GitHub
+            (e.g. the PolarFire SoC Icicle Kit reference design), not against a real Libero SoC
+            or MSS Configurator installation. The pattern below has been confirmed, in several
+            such reference designs, for PolarFire SoC only:
+
+            .. code-block:: tcl
+
+                exec {<mss_configurator_path>} -GENERATE "-CONFIGURATION_FILE:<cfg_file>" \\
+                    "-OUTPUT_DIR:<output_folder>"
+                import_mss_component -file {<output_folder>/<name>.cxz}
+
+            The standalone MSS Configurator executable is invoked via TCL's own ``exec``
+            command. It hence runs as a subprocess of the Libero SoC process while the
+            generated script is executing, and must be installed and available on the machine
+            that runs the build.
+        """
+        if not mss_configurations:
+            return ""
+
+        mss_configurator_path_resolved = get_mss_configurator_path(mss_configurator_path)
+
+        tcl = ""
+        for mss_configuration in mss_configurations:
+            output_folder = mss_configuration.output_folder or (
+                project_folder / "mss" / mss_configuration.name
+            )
+            cxz_file = output_folder / f"{mss_configuration.name}.cxz"
+
+            tcl += (
+                f"exec {{{to_tcl_path(mss_configurator_path_resolved)}}} -GENERATE "
+                f'"-CONFIGURATION_FILE:{to_tcl_path(mss_configuration.cfg_file)}" '
+                f'"-OUTPUT_DIR:{to_tcl_path(output_folder)}"\n'
+                f"import_mss_component -file {{{to_tcl_path(cxz_file)}}}\n"
+            )
+
+        return f"""
+# ------------------------------------------------------------------------------
+{tcl}"""
 
     def _add_module_source_files(self, modules: ModuleList, other_arguments: dict[str, Any]) -> str:
         hdl_files = []

@@ -19,6 +19,7 @@ from tsfpga.vivado.build_result import BuildResult
 from tsfpga.vivado.project import copy_and_combine_dicts
 
 from .common import run_libero_gui, run_libero_tcl
+from .mss import MssConfiguration
 from .tcl import LiberoTcl
 
 if TYPE_CHECKING:
@@ -50,6 +51,9 @@ class LiberoProject:
         * IP cores (the Libero "vault"/SmartDesign ecosystem) can be added using the same
           :class:`.IpCoreFile` mechanism as for Vivado, since it is tool-agnostic.
           See :meth:`.LiberoTcl._add_ip_cores`.
+        * A Microcontroller Subsystem (MSS) component can be generated and imported using
+          :class:`.MssConfiguration`. Confirmed for PolarFire SoC only.
+          See :meth:`.LiberoTcl._add_mss_components`.
         * :attr:`.BuildResult.synthesis_size` / ``implementation_size`` are not populated, since
           this requires a resource-utilization report parser that has not yet been implemented.
           The exact machine-parsable format of the Libero SoC "Compile Report" could not be
@@ -71,6 +75,8 @@ class LiberoProject:
         | None = None,
         constraints: list[Constraint] | None = None,
         tcl_sources: list[Path] | None = None,
+        mss_configurations: list[MssConfiguration] | None = None,
+        mss_configurator_path: Path | None = None,
         build_step_hooks: list[BuildStepTclHook] | None = None,
         libero_path: Path | None = None,
         defined_at: Path | None = None,
@@ -100,6 +106,14 @@ class LiberoProject:
             constraints: Constraints that will be applied to the project.
                 Both ``.sdc`` and ``.pdc`` files are supported. See class docstring.
             tcl_sources: A list of TCL files. Use for e.g. project settings.
+            mss_configurations: A list of Microcontroller Subsystem (MSS) configurations that
+                shall be generated and imported into the project.
+
+                .. warning::
+                    See class docstring for limitations. Confirmed for PolarFire SoC only.
+            mss_configurator_path: A path to the standalone MSS Configurator executable.
+                If omitted, the default location from the system PATH will be used
+                (``pfsoc_mss`` for PolarFire SoC).
             build_step_hooks: Build step hooks that will be applied to the project.
                 Since Libero SoC has no native per-step Tcl hook property, these are emulated by
                 ``source``-ing the hook file immediately before/after the relevant ``run_tool``
@@ -139,6 +153,8 @@ class LiberoProject:
         self.static_generics = {} if generics is None else generics.copy()
         self.constraints = [] if constraints is None else constraints.copy()
         self.tcl_sources = [] if tcl_sources is None else tcl_sources.copy()
+        self.mss_configurations = [] if mss_configurations is None else mss_configurations.copy()
+        self._mss_configurator_path = mss_configurator_path
         self.build_step_hooks = [] if build_step_hooks is None else build_step_hooks.copy()
         self._libero_path = libero_path
         self.defined_at = defined_at
@@ -159,6 +175,12 @@ class LiberoProject:
         for tcl_source in self.tcl_sources:
             if not isinstance(tcl_source, Path):
                 raise TypeError(f'Got bad type for "tcl_sources" element: {tcl_source}')
+
+        for mss_configuration in self.mss_configurations:
+            if not isinstance(mss_configuration, MssConfiguration):
+                raise TypeError(
+                    f'Got bad type for "mss_configurations" element: {mss_configuration}'
+                )
 
         for build_step_hook in self.build_step_hooks:
             if not isinstance(build_step_hook, BuildStepTclHook):
@@ -196,6 +218,8 @@ class LiberoProject:
             hdl=self.hdl,
             constraints=self.constraints,
             tcl_sources=self.tcl_sources,
+            mss_configurations=self.mss_configurations,
+            mss_configurator_path=self._mss_configurator_path,
             other_arguments=all_arguments,
         )
         create_file(create_libero_project_tcl, tcl)

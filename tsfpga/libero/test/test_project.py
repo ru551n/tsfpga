@@ -14,6 +14,7 @@ import pytest
 
 from tsfpga.build_step_tcl_hook import BuildStepTclHook
 from tsfpga.constraint import Constraint
+from tsfpga.libero.mss import MssConfiguration
 from tsfpga.libero.project import LiberoProject
 from tsfpga.module import BaseModule
 from tsfpga.system_utils import create_directory, create_file
@@ -113,6 +114,22 @@ def test_bad_build_step_hooks_type_should_raise_error():
     with pytest.raises(TypeError) as exception_info:
         _get_project(build_step_hooks=["file.tcl"])
     assert str(exception_info.value) == 'Got bad type for "build_step_hooks" element: file.tcl'
+
+
+def test_mss_configurations_list_should_be_copied():
+    mss_configurations = [MssConfiguration(cfg_file=Path("1.cfg"))]
+    proj = _get_project(mss_configurations=mss_configurations)
+
+    mss_configurations.append(MssConfiguration(cfg_file=Path("2.cfg")))
+    assert len(proj.mss_configurations) == 1
+
+
+def test_bad_mss_configurations_type_should_raise_error():
+    _get_project(mss_configurations=[MssConfiguration(cfg_file=Path("apa.cfg"))])
+
+    with pytest.raises(TypeError) as exception_info:
+        _get_project(mss_configurations=["mss.cfg"])
+    assert str(exception_info.value) == 'Got bad type for "mss_configurations" element: mss.cfg'
 
 
 def test_top_name():

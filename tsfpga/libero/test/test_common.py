@@ -11,7 +11,13 @@ from unittest.mock import patch
 
 import pytest
 
-from tsfpga.libero.common import get_libero_path, get_libero_version, run_libero_gui, run_libero_tcl
+from tsfpga.libero.common import (
+    get_libero_path,
+    get_libero_version,
+    get_mss_configurator_path,
+    run_libero_gui,
+    run_libero_tcl,
+)
 
 THIS_DIR = Path(__file__).parent
 
@@ -71,3 +77,18 @@ def test_get_libero_path_should_raise_exception_if_not_found_on_path():
 def test_get_libero_version():
     libero_path = Path("/opt/Microchip/Libero_SoC_v2023.1/bin64/libero")
     assert get_libero_version(libero_path=libero_path) == "Libero_SoC_v2023.1"
+
+
+def test_get_mss_configurator_path_with_explicit_path():
+    mss_configurator_path = THIS_DIR / "pfsoc_mss.exe"
+    assert get_mss_configurator_path(mss_configurator_path) == mss_configurator_path.resolve()
+
+
+def test_get_mss_configurator_path_should_raise_exception_if_not_found_on_path():
+    with patch("tsfpga.libero.common.which", return_value=None) as _:
+        with pytest.raises(FileNotFoundError) as exception_info:
+            get_mss_configurator_path(None)
+        assert str(exception_info.value) == (
+            "Could not find 'pfsoc_mss' on PATH. "
+            "Set 'mss_configurator_path' explicitly if using another MSS Configurator."
+        )

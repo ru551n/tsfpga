@@ -14,6 +14,7 @@ import pytest
 from tsfpga.build_step_tcl_hook import BuildStepTclHook
 from tsfpga.constraint import Constraint
 from tsfpga.ip_core_file import IpCoreFile
+from tsfpga.libero.mss import MssConfiguration
 from tsfpga.libero.tcl import LiberoTcl
 from tsfpga.module import BaseModule
 from tsfpga.module_list import ModuleList
@@ -80,6 +81,45 @@ def test_tcl_sources_are_sourced():
     tcl = _get_tcl(tcl_sources=[Path("hest.tcl"), Path("zebra.tcl")])
     assert f"source -notrace {{{to_tcl_path(Path('hest.tcl'))}}}" in tcl
     assert f"source -notrace {{{to_tcl_path(Path('zebra.tcl'))}}}" in tcl
+
+
+def test_mss_components_are_generated_and_imported():
+    mss_configurator_path = Path("pfsoc_mss.exe")
+    mss_configuration = MssConfiguration(cfg_file=Path("mss.cfg"), name="mss_0")
+
+    tcl = _get_tcl(
+        mss_configurations=[mss_configuration], mss_configurator_path=mss_configurator_path
+    )
+
+    output_folder = Path("project") / "mss" / "mss_0"
+    cxz_file = output_folder / "mss_0.cxz"
+    assert (
+        f"exec {{{to_tcl_path(mss_configurator_path.resolve())}}} -GENERATE "
+        f'"-CONFIGURATION_FILE:{to_tcl_path(Path("mss.cfg"))}" '
+        f'"-OUTPUT_DIR:{to_tcl_path(output_folder)}"\n'
+        f"import_mss_component -file {{{to_tcl_path(cxz_file)}}}\n"
+    ) in tcl
+
+
+def test_mss_component_with_explicit_output_folder():
+    mss_configurator_path = Path("pfsoc_mss.exe")
+    mss_configuration = MssConfiguration(
+        cfg_file=Path("mss.cfg"), name="mss_0", output_folder=Path("my_mss_output")
+    )
+
+    tcl = _get_tcl(
+        mss_configurations=[mss_configuration], mss_configurator_path=mss_configurator_path
+    )
+
+    cxz_file = Path("my_mss_output") / "mss_0.cxz"
+    assert f'"-OUTPUT_DIR:{to_tcl_path(Path("my_mss_output"))}"' in tcl
+    assert f"import_mss_component -file {{{to_tcl_path(cxz_file)}}}" in tcl
+
+
+def test_no_mss_configurations_gives_no_exec_or_import_mss_component():
+    tcl = _get_tcl()
+    assert "exec" not in tcl
+    assert "import_mss_component" not in tcl
 
 
 def test_ip_core_files_are_added():

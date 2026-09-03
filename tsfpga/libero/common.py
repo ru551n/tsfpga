@@ -87,6 +87,36 @@ def get_libero_path(libero_path: Path | None = None) -> Path:
     return Path(which_libero).resolve()
 
 
+def get_mss_configurator_path(mss_configurator_path: Path | None = None) -> Path:
+    """
+    Wrapper to get a path to the standalone Microcontroller Subsystem (MSS) Configurator
+    executable. See :meth:`.LiberoTcl._add_mss_components` for more information.
+
+    .. warning::
+        The default executable name, ``"pfsoc_mss"``, has only been confirmed for the PolarFire
+        SoC MSS Configurator, based on Microchip reference designs published on GitHub.
+        Other device families that use an MSS (e.g. SmartFusion2) have their own MSS
+        Configurator tool, with an executable name that has not been confirmed.
+        For those, ``mss_configurator_path`` must be given explicitly.
+
+    Arguments:
+        mss_configurator_path: Path to the MSS Configurator executable.
+            Leave as ``None`` to use whatever is available in the system ``PATH``
+            (looking for an executable named ``"pfsoc_mss"``).
+    """
+    if mss_configurator_path is not None:
+        return mss_configurator_path.resolve()
+
+    which_mss_configurator = which("pfsoc_mss")
+    if which_mss_configurator is None:
+        raise FileNotFoundError(
+            "Could not find 'pfsoc_mss' on PATH. "
+            "Set 'mss_configurator_path' explicitly if using another MSS Configurator."
+        )
+
+    return Path(which_mss_configurator).resolve()
+
+
 def get_libero_version(libero_path: Path | None = None) -> str:
     """
     Get the version number of the Libero SoC installation.
