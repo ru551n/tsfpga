@@ -57,6 +57,24 @@ class YosysNetlistBuild:
     #: Will always be ``True`` for this class, since it is a netlist build.
     is_netlist_build = True
 
+    #: The regular expression patterns used to compute aggregated resource counts (e.g.
+    #: ``"Total LUTs"``) from the raw Yosys cell counts. See
+    #: :meth:`.YosysUtilizationParser.get_size`.
+    #: Is ``None`` in this base class, since the plain ``synth`` command does not target any
+    #: specific architecture, meaning there is no consistent set of primitive cell names that can
+    #: be aggregated. Only the raw cell counts will be available in the synthesis result.
+    #: Overridden by the architecture-specific subclasses (:class:`.YosysXilinxNetlistBuild`,
+    #: :class:`.YosysIntelNetlistBuild`, :class:`.YosysMicrochipNetlistBuild`).
+    _resource_name_patterns: dict[str, str] | None = None
+
+    #: Whether the ``synth_command`` needs an explicit ``-flatten`` flag appended to it in order
+    #: to flatten the design before synthesis (see :meth:`._get_synth_command`).
+    #: This is the case for e.g. the ``synth`` and ``synth_xilinx`` commands.
+    #: Some ``synth_*`` commands (e.g. ``synth_intel`` and ``synth_microchip``) instead flatten
+    #: the design by default, and do not accept a ``-flatten`` flag. Such subclasses shall set
+    #: this attribute to ``False``.
+    _needs_explicit_flatten_flag: bool = True
+
     def __init__(  # noqa: PLR0913, PLR0917
         self,
         name: str,
@@ -324,7 +342,8 @@ class YosysNetlistBuild:
     def _get_synth_command(self) -> str:
         # The design is flattened so that the produced utilization report contains the
         # primitive counts for the whole design, and not just the top level.
-        return f"{self.synth_command} -top {self.top} -flatten"
+        flatten_flag = " -flatten" if self._needs_explicit_flatten_flag else ""
+        return f"{self.synth_command} -top {self.top}{flatten_flag}"
 
     def _get_yosys_script(
         self,
@@ -495,7 +514,10 @@ class YosysNetlistBuild:
         return True
 
     def _get_size(self, utilization_report_file: Path) -> dict[str, int]:
-        return YosysUtilizationParser.get_size(report=read_file(utilization_report_file))
+        return YosysUtilizationParser.get_size(
+            report=read_file(utilization_report_file),
+            resource_name_patterns=self._resource_name_patterns,
+        )
 
     def _check_size(self, build_result: BuildResult) -> bool:
         success = True
@@ -536,6 +558,14 @@ class YosysNetlistBuild:
         return ", ".join([f"{name}={value}" for name, value in data.items()])
 
 
+def _get_synth_command_with_family(synth_command: str, family: str | None) -> str:
+    """
+    Shared helper used by the architecture-specific subclasses below to append an optional
+    ``-family <family>`` flag to their ``synth_*`` command.
+    """
+    return synth_command if family is None else f"{synth_command} -family {family}"
+
+
 class YosysXilinxNetlistBuild(YosysNetlistBuild):
     """
     Used for handling a Yosys netlist build that targets Xilinx primitives (LUTs, FDs,
@@ -545,6 +575,8 @@ class YosysXilinxNetlistBuild(YosysNetlistBuild):
     Vivado utilization report, the checkers in :mod:`.vivado.build_result_checker` can be used
     directly to check e.g. the LUT or RAMB count of the design.
     """
+
+    _resource_name_patterns = YosysUtilizationParser.XILINX_RESOURCE_NAME_PATTERNS
 
     def __init__(
         self,
@@ -558,9 +590,88 @@ class YosysXilinxNetlistBuild(YosysNetlistBuild):
             kwargs: Further arguments accepted by :meth:`.YosysNetlistBuild.__init__`.
                 Note that ``synth_command`` may not be set, since it is set by this class.
         """
-        synth_command = "synth_xilinx"
-        if family is not None:
-            synth_command += f" -family {family}"
+        synth_command = _get_synth_command_with_family(synth_command="synth_xilinx", family=family)
+        super().__init__(synth_command=synth_command, **kwargs)
+
+
+class YosysIntelNetlistBuild(YosysNetlistBuild):
+    """
+    Used for handling a Yosys netlist build that targets Intel (Altera) primitives
+    (``*_lcell_comb``, ``dffeas``, ``altsyncram``, ...), using the Yosys ``synth_intel`` command.
+
+    .. note::
+        Targets the MAX10, Cyclone IV, Cyclone IV E and Cyclone 10 LP families.
+        For ALM-based Intel devices (Cyclone V, Cyclone 10 GX) the ``synth_intel_alm`` command
+        shall be used instead, which is not covered by this class. Use the base
+        :class:`.YosysNetlistBuild` with ``synth_command="synth_intel_alm"`` for that, though note
+        that no aggregated resource counts will be available in that case.
+
+    Since the produced utilization report uses the resource names ``"Total LUTs"``, ``"FFs"``,
+    ``"Block RAMs"`` and ``"DSP Blocks"``, the corresponding checkers in
+    :mod:`.vivado.build_result_checker` can be used directly.
+    """
+
+    _resource_name_patterns = YosysUtilizationParser.INTEL_RESOURCE_NAME_PATTERNS
+    _needs_explicit_flatten_flag = False
+
+    def __init__(
+        self,
+        family: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        """
+        Arguments:
+            family: Optionally target a specific Intel device family (e.g. ``"cycloneiv"``).
+                See the Yosys ``synth_intel`` command documentation for valid values.
+            kwargs: Further arguments accepted by :meth:`.YosysNetlistBuild.__init__`.
+                Note that ``synth_command`` may not be set, since it is set by this class.
+        """
+        synth_command = _get_synth_command_with_family(synth_command="synth_intel", family=family)
+        super().__init__(synth_command=synth_command, **kwargs)
+
+
+class YosysMicrochipNetlistBuild(YosysNetlistBuild):
+    """
+    Used for handling a Yosys netlist build that targets Microchip primitives
+    (``CFG*``, ``SLE``, ``RAM1K20``, ``MACC_PA``, ...), using the Yosys ``synth_microchip``
+    command.
+
+    .. note::
+        Targets the PolarFire family, which is the only one currently supported by the Yosys
+        ``synth_microchip`` command.
+
+    Since the produced utilization report uses the resource names ``"Total LUTs"``, ``"FFs"``,
+    ``"Block RAMs"`` and ``"DSP Blocks"``, the corresponding checkers in
+    :mod:`.vivado.build_result_checker` can be used directly.
+    """
+
+    _resource_name_patterns = YosysUtilizationParser.MICROCHIP_RESOURCE_NAME_PATTERNS
+    _needs_explicit_flatten_flag = False
+
+    def __init__(
+        self,
+        family: str | None = None,
+        discard_ffinit: bool = False,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        """
+        Arguments:
+            family: Optionally target a specific Microchip device family.
+                See the Yosys ``synth_microchip`` command documentation for valid values.
+            discard_ffinit: The Yosys ``synth_microchip`` command will raise an error if the
+                design contains a flip-flop with an initial value that can not be legalized to
+                a supported flip-flop type (which is a common occurrence, since e.g. VHDL signals
+                initialized to a default value result in flip-flops with an initial value).
+                Set this to ``True`` to instead discard the initial value and let synthesis
+                proceed. Corresponds to the Yosys ``-discard-ffinit`` flag.
+            kwargs: Further arguments accepted by :meth:`.YosysNetlistBuild.__init__`.
+                Note that ``synth_command`` may not be set, since it is set by this class.
+        """
+        synth_command = _get_synth_command_with_family(
+            synth_command="synth_microchip", family=family
+        )
+        if discard_ffinit:
+            synth_command += " -discard-ffinit"
 
         super().__init__(synth_command=synth_command, **kwargs)
 

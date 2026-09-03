@@ -16,8 +16,13 @@ from tsfpga.examples.example_env import get_tsfpga_example_modules
 from tsfpga.module import get_modules
 from tsfpga.system_utils import create_file
 from tsfpga.test.test_utils import file_contains_string
-from tsfpga.vivado.build_result_checker import EqualTo, GreaterThan, LessThan, TotalLuts
-from tsfpga.yosys.project import YosysNetlistBuild, YosysXilinxNetlistBuild
+from tsfpga.vivado.build_result_checker import EqualTo, Ffs, GreaterThan, LessThan, TotalLuts
+from tsfpga.yosys.project import (
+    YosysIntelNetlistBuild,
+    YosysMicrochipNetlistBuild,
+    YosysNetlistBuild,
+    YosysXilinxNetlistBuild,
+)
 
 # Path to the 'ghdl-yosys-plugin' module (typically named 'ghdl.so').
 # Can be left unset if the plugin is already available to Yosys without explicitly loading it
@@ -205,6 +210,50 @@ def test_building_plain_yosys_netlist_project(basic_project_test):
     build_result = project.build(project_path=basic_project_test.project_folder)
     assert build_result.success
     assert sum(build_result.synthesis_size.values()) > 0
+
+
+def test_building_intel_netlist_project(basic_project_test):
+    """
+    Build a Yosys netlist project targeting Intel primitives, using 'YosysIntelNetlistBuild'.
+    Uses the same resource name conventions ('Total LUTs', 'FFs') as the Xilinx flow, so the
+    same build result checkers can be reused.
+    """
+    project = YosysIntelNetlistBuild(
+        name="test_proj",
+        modules=basic_project_test.modules,
+        build_result_checkers=[TotalLuts(GreaterThan(0)), Ffs(GreaterThan(0))],
+        ghdl_plugin_path=GHDL_PLUGIN_PATH,
+        ghdl_prefix=GHDL_PREFIX,
+    )
+    assert project.create(basic_project_test.project_folder)
+
+    build_result = project.build(project_path=basic_project_test.project_folder)
+    assert build_result.success
+    assert build_result.synthesis_size["Total LUTs"] > 0
+    assert build_result.synthesis_size["FFs"] > 0
+
+
+def test_building_microchip_netlist_project(basic_project_test):
+    """
+    Build a Yosys netlist project targeting Microchip primitives, using
+    'YosysMicrochipNetlistBuild'.
+    """
+    project = YosysMicrochipNetlistBuild(
+        name="test_proj",
+        modules=basic_project_test.modules,
+        # The top level has a signal with an initial value, which is not supported by the
+        # Microchip flip-flop mapping unless explicitly discarded.
+        discard_ffinit=True,
+        build_result_checkers=[TotalLuts(GreaterThan(0)), Ffs(GreaterThan(0))],
+        ghdl_plugin_path=GHDL_PLUGIN_PATH,
+        ghdl_prefix=GHDL_PREFIX,
+    )
+    assert project.create(basic_project_test.project_folder)
+
+    build_result = project.build(project_path=basic_project_test.project_folder)
+    assert build_result.success
+    assert build_result.synthesis_size["Total LUTs"] > 0
+    assert build_result.synthesis_size["FFs"] > 0
 
 
 def test_building_resource_counter_example_module_netlist_projects(tmp_path):

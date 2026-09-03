@@ -103,9 +103,15 @@ via the `ghdl-yosys-plugin <https://github.com/ghdl/ghdl-yosys-plugin>`__.
 Since `GHDL <https://ghdl.github.io/ghdl/>`__ is used as the VHDL front end, no Verilog/VHDL
 conversion step is needed, and the whole flow is Vivado-free.
 
-This is done using the :class:`.YosysNetlistBuild` class, or the
-:class:`.YosysXilinxNetlistBuild` subclass which targets Xilinx primitives specifically (LUTs,
-FDs, RAMBs, DSP48s, ...) via the Yosys ``synth_xilinx`` command:
+This is done using the :class:`.YosysNetlistBuild` class, or one of the architecture-specific
+subclasses that target a certain vendor's primitives via a specific Yosys ``synth_*`` command:
+
+* :class:`.YosysXilinxNetlistBuild` targets Xilinx primitives (LUTs, FDs, RAMBs, DSP48s, ...) via
+  the Yosys ``synth_xilinx`` command.
+* :class:`.YosysIntelNetlistBuild` targets Intel (Altera) primitives (LEs, ``dffeas``,
+  ``altsyncram``, ...) via the Yosys ``synth_intel`` command.
+* :class:`.YosysMicrochipNetlistBuild` targets Microchip primitives (``CFG*``, ``SLE``,
+  ``RAM1K20``, ...) via the Yosys ``synth_microchip`` command.
 
 .. code-block:: python
     :caption: Yosys netlist build example.
@@ -122,9 +128,21 @@ FDs, RAMBs, DSP48s, ...) via the Yosys ``synth_xilinx`` command:
         ]
     )
 
-Since the Yosys utilization report uses the same resource naming convention as the Vivado
-utilization report, the checkers in :mod:`.vivado.build_result_checker` can be used directly,
-just like for the Vivado-based netlist builds.
+All the architecture-specific subclasses produce a utilization report that uses (at least a
+subset of) the same resource naming convention as the Vivado utilization report (e.g.
+``"Total LUTs"``, ``"FFs"``, ``"DSP Blocks"``), so the checkers in
+:mod:`.vivado.build_result_checker` can be used directly, just like for the Vivado-based netlist
+builds.
+Since the exact block RAM architecture (e.g. "RAMB36"/"RAMB18") differs between vendors, the
+generic :class:`.BlockRams` checker shall be used instead of :class:`.Ramb`/:class:`.Ramb36`/
+:class:`.Ramb18` (which are Xilinx-specific) when targeting Intel or Microchip.
+
+The base :class:`.YosysNetlistBuild` class uses the generic Yosys ``synth`` command by default,
+which does not target any specific architecture. This is useful for getting a quick, tool- and
+vendor-agnostic resource count of a design, but note that no aggregated resource counts (e.g.
+``"Total LUTs"``) are available in this case -- only the raw Yosys primitive cell counts (e.g.
+``"$_DFF_P_"``).
+
 Note that the ``MaximumLogicLevel`` checker is not supported, since that concept does not apply to
 a Yosys synthesis result.
 

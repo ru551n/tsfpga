@@ -39,7 +39,7 @@ def test_get_size():
     assert result["OBUF"] == 8
 
 
-def test_get_size_aggregates_lut_count():
+def test_get_size_does_not_aggregate_by_default():
     report = """
        10 cells
         3   LUT2
@@ -48,6 +48,24 @@ def test_get_size_aggregates_lut_count():
         4   FDRE
 """
     result = YosysUtilizationParser.get_size(report=report)
+
+    assert "Total LUTs" not in result
+    assert "FFs" not in result
+    assert result["LUT2"] == 3
+    assert result["FDRE"] == 4
+
+
+def test_get_size_aggregates_lut_count():
+    report = """
+       10 cells
+        3   LUT2
+        2   LUT4
+        1   LUT6
+        4   FDRE
+"""
+    result = YosysUtilizationParser.get_size(
+        report=report, resource_name_patterns=YosysUtilizationParser.XILINX_RESOURCE_NAME_PATTERNS
+    )
 
     assert result["Total LUTs"] == 6
     assert result["FFs"] == 4
@@ -60,14 +78,58 @@ def test_get_size_aggregates_ramb_and_dsp_counts():
         1   RAMB36E2
         2   DSP48E2
 """
-    result = YosysUtilizationParser.get_size(report=report)
+    result = YosysUtilizationParser.get_size(
+        report=report, resource_name_patterns=YosysUtilizationParser.XILINX_RESOURCE_NAME_PATTERNS
+    )
 
     assert result["RAMB18"] == 1
     assert result["RAMB36"] == 1
+    assert result["Block RAMs"] == 2
     assert result["DSP Blocks"] == 2
     assert result["RAMB18E2"] == 1
     assert result["RAMB36E2"] == 1
     assert result["DSP48E2"] == 2
+
+
+def test_get_size_aggregates_intel_resource_counts():
+    report = """
+       19 cells
+        1   $not
+        8   dffeas
+       10   fiftyfivenm_lcell_comb
+        1   altsyncram
+        1   fiftyfivenm_mac_mult
+        1   fiftyfivenm_mac_out
+"""
+    result = YosysUtilizationParser.get_size(
+        report=report, resource_name_patterns=YosysUtilizationParser.INTEL_RESOURCE_NAME_PATTERNS
+    )
+
+    assert result["Total LUTs"] == 10
+    assert result["FFs"] == 8
+    assert result["Block RAMs"] == 1
+    assert result["DSP Blocks"] == 2
+
+
+def test_get_size_aggregates_microchip_resource_counts():
+    report = """
+       10 cells
+        1   CFG1
+        2   CFG2
+        2   CFG4
+        8   SLE
+        1   RAM1K20
+        1   MACC_PA
+"""
+    result = YosysUtilizationParser.get_size(
+        report=report,
+        resource_name_patterns=YosysUtilizationParser.MICROCHIP_RESOURCE_NAME_PATTERNS,
+    )
+
+    assert result["Total LUTs"] == 5
+    assert result["FFs"] == 8
+    assert result["Block RAMs"] == 1
+    assert result["DSP Blocks"] == 1
 
 
 def test_get_size_ignores_scopeinfo_cells():
@@ -86,12 +148,15 @@ def test_get_size_with_no_cells_present():
     report = """
         0 cells
 """
-    result = YosysUtilizationParser.get_size(report=report)
+    result = YosysUtilizationParser.get_size(
+        report=report, resource_name_patterns=YosysUtilizationParser.XILINX_RESOURCE_NAME_PATTERNS
+    )
 
     assert result["Total LUTs"] == 0
     assert result["FFs"] == 0
     assert result["RAMB36"] == 0
     assert result["RAMB18"] == 0
+    assert result["Block RAMs"] == 0
     assert result["DSP Blocks"] == 0
     assert result["SRLs"] == 0
 

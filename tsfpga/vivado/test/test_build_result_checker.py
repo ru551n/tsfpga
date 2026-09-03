@@ -13,6 +13,7 @@ import pytest
 
 from tsfpga.vivado.build_result import BuildResult
 from tsfpga.vivado.build_result_checker import (
+    BlockRams,
     DspBlocks,
     EqualTo,
     GreaterThan,
@@ -80,6 +81,14 @@ def test_size_checker_equal_to_fail(mock_stdout):
 
     assert not TotalLuts(EqualTo(50)).check(build_result)
     assert mock_stdout.getvalue() == "Result check failed for Total LUTs. Got 5, expected 50.\n"
+
+
+def test_size_checker_block_rams_is_architecture_agnostic():
+    build_result = BuildResult(name="", synthesis_run_name="")
+
+    build_result.synthesis_size = {"Block RAMs": 3}
+    assert BlockRams(EqualTo(3)).check(build_result)
+    assert not BlockRams(EqualTo(1)).check(build_result)
 
 
 def test_size_checker_dsp_blocks_has_two_names():

@@ -15,7 +15,13 @@ from tsfpga.module import get_modules
 from tsfpga.system_utils import create_file
 from tsfpga.vivado.build_result_checker import EqualTo, Ffs, TotalLuts
 from tsfpga.vivado.generics import BitVectorGenericValue, StringGenericValue
-from tsfpga.yosys.project import YosysNetlistBuild, YosysXilinxNetlistBuild, _get_ghdl_generic_value
+from tsfpga.yosys.project import (
+    YosysIntelNetlistBuild,
+    YosysMicrochipNetlistBuild,
+    YosysNetlistBuild,
+    YosysXilinxNetlistBuild,
+    _get_ghdl_generic_value,
+)
 
 # ruff: noqa: ARG002
 
@@ -120,9 +126,32 @@ def test_project_file_name_is_same_as_project_name():
 def test_xilinx_netlist_build_sets_synth_command():
     project = YosysXilinxNetlistBuild(name="apa", modules=[])
     assert project.synth_command == "synth_xilinx"
+    assert project._get_synth_command() == "synth_xilinx -top apa_top -flatten"  # noqa: SLF001
 
     project = YosysXilinxNetlistBuild(name="apa", modules=[], family="xc7")
     assert project.synth_command == "synth_xilinx -family xc7"
+
+
+def test_intel_netlist_build_sets_synth_command():
+    project = YosysIntelNetlistBuild(name="apa", modules=[])
+    assert project.synth_command == "synth_intel"
+    # 'synth_intel' does not accept a '-flatten' flag, unlike 'synth_xilinx'.
+    assert project._get_synth_command() == "synth_intel -top apa_top"  # noqa: SLF001
+
+    project = YosysIntelNetlistBuild(name="apa", modules=[], family="cycloneiv")
+    assert project.synth_command == "synth_intel -family cycloneiv"
+
+
+def test_microchip_netlist_build_sets_synth_command():
+    project = YosysMicrochipNetlistBuild(name="apa", modules=[])
+    assert project.synth_command == "synth_microchip"
+    assert project._get_synth_command() == "synth_microchip -top apa_top"  # noqa: SLF001
+
+    project = YosysMicrochipNetlistBuild(name="apa", modules=[], family="polarfire")
+    assert project.synth_command == "synth_microchip -family polarfire"
+
+    project = YosysMicrochipNetlistBuild(name="apa", modules=[], discard_ffinit=True)
+    assert project.synth_command == "synth_microchip -discard-ffinit"
 
 
 def test_get_ghdl_generic_value():
