@@ -30,6 +30,7 @@ from .about import WEBSITE_URL
 from .system_utils import create_file, file_is_in_directory, read_file
 from .vhdl_file_documentation import VhdlFileDocumentation
 from .vivado.project import VivadoNetlistProject
+from .yosys.project import YosysNetlistBuild
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -164,7 +165,7 @@ Register code is generated using `hdl-registers <https://hdl-registers.com>`_{to
             netlist_builds = [
                 project
                 for project in all_builds
-                if isinstance(project, VivadoNetlistProject)
+                if isinstance(project, (VivadoNetlistProject, YosysNetlistBuild))
                 and (
                     project.name == netlist_build_base_name
                     or project.name.startswith(f"{netlist_build_base_name}.")
@@ -292,7 +293,7 @@ This document contains technical documentation for the ``{self._module.name}`` m
         vhdl_file_path: Path,
         heading_character: str,
         heading_character_2: str,
-        netlist_builds: list[VivadoNetlistProject],
+        netlist_builds: list[VivadoNetlistProject | YosysNetlistBuild],
     ) -> str:
         """
         Get reStructuredText documentation for a VHDL file.
@@ -355,7 +356,10 @@ This document contains technical documentation for the ``{self._module.name}`` m
         return rst
 
     def _get_resource_utilization_rst(  # noqa: C901
-        self, entity_name: str, heading_character: str, netlist_builds: list[VivadoNetlistProject]
+        self,
+        entity_name: str,
+        heading_character: str,
+        netlist_builds: list[VivadoNetlistProject | YosysNetlistBuild],
     ) -> str:
         # First, loop over all netlist builds for this module and assemble information
         build_generics = []
