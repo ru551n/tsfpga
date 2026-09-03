@@ -13,6 +13,7 @@ import pytest
 
 from tsfpga.build_step_tcl_hook import BuildStepTclHook
 from tsfpga.constraint import Constraint
+from tsfpga.ip_core_file import IpCoreFile
 from tsfpga.libero.tcl import LiberoTcl
 from tsfpga.module import BaseModule
 from tsfpga.module_list import ModuleList
@@ -79,6 +80,43 @@ def test_tcl_sources_are_sourced():
     tcl = _get_tcl(tcl_sources=[Path("hest.tcl"), Path("zebra.tcl")])
     assert f"source -notrace {{{to_tcl_path(Path('hest.tcl'))}}}" in tcl
     assert f"source -notrace {{{to_tcl_path(Path('zebra.tcl'))}}}" in tcl
+
+
+def test_ip_core_files_are_added():
+    ip_core_file_path = Path("ip_cores") / "my_core.tcl"
+    module = MagicMock(spec=BaseModule)
+    module.get_ip_core_files.return_value = [
+        IpCoreFile(path=ip_core_file_path, apa="hest", zebra=123)
+    ]
+
+    modules = ModuleList()
+    modules.append(module)
+
+    tcl = LiberoTcl(name="name").create(
+        project_folder=Path("project"),
+        modules=modules,
+        family="PolarFire",
+        die="MPF300TS_ES",
+        package="FCG1152",
+        top="top",
+    )
+
+    assert (
+        f"""
+proc create_ip_core_my_core {{}} {{
+  set apa "hest"
+  set zebra "123"
+  source -notrace {{{to_tcl_path(ip_core_file_path)}}}
+}}
+create_ip_core_my_core
+
+"""
+        in tcl
+    )
+
+
+def test_no_ip_core_files_gives_no_create_ip_core_proc():
+    assert "create_ip_core" not in _get_tcl()
 
 
 def test_constraints():

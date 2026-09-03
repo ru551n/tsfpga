@@ -66,6 +66,7 @@ new_project \
 """
         tcl += self._add_module_source_files(modules=modules, other_arguments=other_arguments)
         tcl += self._add_tcl_sources(tcl_sources)
+        tcl += self._add_ip_cores(modules=modules, other_arguments=other_arguments)
 
         tcl += f"""
 # ------------------------------------------------------------------------------
@@ -116,6 +117,48 @@ import_files \\
             tcl += f"source -notrace {{{to_tcl_path(tcl_source_file)}}}\n"
 
         return f"{tcl}\n"
+
+    @staticmethod
+    def _add_ip_cores(modules: ModuleList, other_arguments: dict[str, Any]) -> str:
+        """
+        Mirrors :meth:`.VivadoTcl._add_ip_cores`.
+
+        The :class:`.IpCoreFile` mechanism is tool-agnostic: it is simply a user-supplied TCL
+        file that is ``source``:d, optionally with a handful of variables set beforehand.
+        Since the file content is entirely up to the user, this works equally well for Libero
+        SoC as it does for Vivado.
+        The user's TCL file would typically use e.g. ``create_and_configure_core``,
+        ``download_core``, and/or SmartDesign TCL commands to create/configure the IP core.
+
+        .. warning::
+            This mechanism has not been verified against a real Libero SoC installation.
+            In particular, the exact TCL commands needed to create and configure a vault IP
+            core (and whether/how ``create_and_configure_core`` shall be scoped to a
+            SmartDesign) are up to the user's own TCL file, and have not been verified here.
+        """
+        tcl = ""
+        for module in modules:
+            for ip_core_file in module.get_ip_core_files(**other_arguments):
+                create_function_name = f"create_ip_core_{ip_core_file.name}"
+                tcl += f"proc {create_function_name} {{}} {{\n"
+
+                if ip_core_file.variables:
+                    for key, value in ip_core_file.variables.items():
+                        tcl += f'  set {key} "{value}"\n'
+
+                tcl += f"""\
+  source -notrace {{{to_tcl_path(ip_core_file.path)}}}
+}}
+{create_function_name}
+
+"""
+        if tcl == "":
+            return ""
+
+        return f"""
+# ------------------------------------------------------------------------------
+{tcl}\
+"""
 
     @staticmethod
     def _add_generics(

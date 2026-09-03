@@ -47,9 +47,13 @@ class LiberoProject:
         * Both ``.sdc`` timing constraints and ``.pdc`` pin/floorplanning constraints are
           supported. Scoped constraints and a non-default processing order are not supported.
           See :meth:`.LiberoTcl._add_constraints`.
-        * IP cores (the Libero "vault"/SmartDesign ecosystem) are not supported.
+        * IP cores (the Libero "vault"/SmartDesign ecosystem) can be added using the same
+          :class:`.IpCoreFile` mechanism as for Vivado, since it is tool-agnostic.
+          See :meth:`.LiberoTcl._add_ip_cores`.
         * :attr:`.BuildResult.synthesis_size` / ``implementation_size`` are not populated, since
           this requires a resource-utilization report parser that has not yet been implemented.
+          The exact machine-parsable format of the Libero SoC "Compile Report" could not be
+          confirmed from documentation alone.
     """
 
     def __init__(  # noqa: PLR0913
