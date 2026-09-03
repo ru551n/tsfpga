@@ -41,7 +41,9 @@ class LiberoProject:
         only. It has **not** been verified against a real Libero SoC installation.
         Notable limitations compared to :class:`.VivadoProject`:
 
-        * Generics/parameters are not yet supported (see :meth:`.LiberoTcl._add_generics`).
+        * Generics/parameters are set right before synthesis using
+          ``set_option -hdl_param -set <name> <value>``, and only VHDL literal syntax is
+          supported. See :meth:`.LiberoTcl._add_generics`.
         * Only ``.sdc`` timing constraints are supported, not pin/floorplanning ``.pdc``
           constraints, scoped constraints, or non-default processing order.
         * IP cores (the Libero "vault"/SmartDesign ecosystem) are not supported.
@@ -84,10 +86,12 @@ class LiberoProject:
             speed: Device speed grade.
             die_voltage: Device die voltage.
             hdl: Target language. Either ``"VHDL"`` or ``"VERILOG"``.
-            generics: A dict with generics values (name: value).
+            generics: A dict with generics values (name: value). These are static, i.e. they
+                will be used for every build of this project. Can be overridden/complemented
+                with the ``generics`` argument to :meth:`.build`.
 
                 .. warning::
-                    Not yet supported. See class docstring.
+                    See class docstring for limitations.
             constraints: Constraints that will be applied to the project.
                 Only ``.sdc`` files are supported at this time. See class docstring.
             tcl_sources: A list of TCL files. Use for e.g. project settings.
@@ -185,7 +189,6 @@ class LiberoProject:
             speed=self.speed,
             die_voltage=self.die_voltage,
             hdl=self.hdl,
-            generics=self.static_generics,
             constraints=self.constraints,
             tcl_sources=self.tcl_sources,
             other_arguments=all_arguments,
@@ -262,7 +265,13 @@ class LiberoProject:
         """
         return True
 
-    def _build_tcl(self, project_path: Path, output_path: Path | None, synth_only: bool) -> Path:
+    def _build_tcl(
+        self,
+        project_path: Path,
+        output_path: Path | None,
+        all_generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue],
+        synth_only: bool,
+    ) -> Path:
         """
         Make a TCL file that builds a Libero SoC project.
         """
@@ -278,6 +287,8 @@ class LiberoProject:
             top=self.top,
             output_path=output_path,
             build_step_hooks=self.build_step_hooks,
+            generics=all_generics,
+            hdl=self.hdl,
             synth_only=synth_only,
         )
         create_file(build_libero_project_tcl, tcl)
@@ -326,6 +337,8 @@ class LiberoProject:
         self,
         project_path: Path,
         output_path: Path | None = None,
+        generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue]
+        | None = None,
         synth_only: bool = False,
         **pre_and_post_build_parameters: Any,  # noqa: ANN401
     ) -> BuildResult:
@@ -335,6 +348,10 @@ class LiberoProject:
         Arguments:
             project_path: A path containing a Libero SoC project.
             output_path: Results (bitstream, ...) will be placed here.
+            generics: A dict with generics values (`dict(name: value)`). Use for run-time
+                generics, i.e. values that can change between each build of this project.
+                Compare to the create-time generics argument in :meth:`.__init__`.
+                The generic value types follow the same rules as for :meth:`.__init__`.
             synth_only: Run synthesis and then stop.
             pre_and_post_build_parameters: Optional further arguments. Will not be used by
                 tsfpga, but will instead be sent to
@@ -363,9 +380,15 @@ class LiberoProject:
                 f"Building Libero SoC project in {project_path}, placing artifacts in {output_path}"
             )
 
+        # Combine to all available generics. Prefer run-time values over static.
+        all_generics = copy_and_combine_dicts(self.static_generics, generics)
+
         all_parameters = copy_and_combine_dicts(self.other_arguments, pre_and_post_build_parameters)
         all_parameters.update(
-            project_path=project_path, output_path=output_path, synth_only=synth_only
+            project_path=project_path,
+            output_path=output_path,
+            generics=all_generics,
+            synth_only=synth_only,
         )
 
         # See 'VivadoProject.build' for the rationale of doing this copy here as well as
@@ -377,8 +400,7 @@ class LiberoProject:
         for module in self.modules:
             if not module.pre_build(project=self, **all_parameters):
                 print(
-                    f"ERROR: Module {module.name} pre-build hook returned False. "
-                    "Failing the build."
+                    f"ERROR: Module {module.name} pre-build hook returned False. Failing the build."
                 )
                 result.success = False
                 return result
@@ -392,7 +414,10 @@ class LiberoProject:
             return result
 
         build_libero_project_tcl = self._build_tcl(
-            project_path=project_path, output_path=output_path, synth_only=synth_only
+            project_path=project_path,
+            output_path=output_path,
+            all_generics=all_generics,
+            synth_only=synth_only,
         )
 
         if not run_libero_tcl(self._libero_path, build_libero_project_tcl):

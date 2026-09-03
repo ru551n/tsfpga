@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 from tsfpga.vivado.common import to_tcl_path
 
+from .generics import get_libero_tcl_generic_value
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -44,8 +46,6 @@ class LiberoTcl:
         speed: str = "-1",
         die_voltage: str = "1.0",
         hdl: str = "VHDL",
-        generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue]
-        | None = None,
         constraints: list[Constraint] | None = None,
         tcl_sources: list[Path] | None = None,
         other_arguments: dict[str, Any] | None = None,
@@ -66,7 +66,6 @@ new_project \
 """
         tcl += self._add_module_source_files(modules=modules, other_arguments=other_arguments)
         tcl += self._add_tcl_sources(tcl_sources)
-        tcl += self._add_generics(generics=generics)
 
         tcl += f"""
 # ------------------------------------------------------------------------------
@@ -121,23 +120,42 @@ import_files \\
     @staticmethod
     def _add_generics(
         generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue] | None,
+        hdl: str,
     ) -> str:
         """
-        .. note::
-            Setting generics/parameters at the project level is **not yet supported** by the
-            Libero SoC plugin.
+        Set generics/parameters right before running synthesis.
+
+        .. warning::
+            This has been developed against Libero SoC Tcl documentation and support articles
+            only. It has **not** been verified against a real Libero SoC installation.
+
             Libero SoC does not have a project-wide "generic override" mechanism comparable to
-            Vivado's ``set_property generic``.
-            A future implementation would likely have to edit the default value of the top-level
-            HDL parameters before import, or configure a SmartDesign instance.
+            Vivado's ``set_property generic``. Instead, the value of a top-level HDL
+            generic/parameter can be overridden right before synthesis using
+            ``set_option -hdl_param -set <name> <value>``, as documented in a few Microchip
+            support articles. This method emits that command for each generic, right before the
+            ``run_tool -name {SYNTHESIZE}`` call.
+
+            Only ``hdl="VHDL"`` is supported. Verilog parameter literal syntax has not been
+            investigated, since it likely differs from VHDL's and no reference example was found.
         """
         if not generics:
             return ""
 
-        raise NotImplementedError(
-            "Setting generics is not yet supported by the Libero SoC plugin. "
-            "See 'LiberoTcl._add_generics()' for more information."
-        )
+        if hdl != "VHDL":
+            raise NotImplementedError(
+                "Setting generics is only supported for hdl='VHDL' by the Libero SoC plugin. "
+                "See 'LiberoTcl._add_generics()' for more information."
+            )
+
+        tcl = """
+# ------------------------------------------------------------------------------
+"""
+        for name, value in generics.items():
+            value_tcl_formatted = get_libero_tcl_generic_value(value=value)
+            tcl += f"set_option -hdl_param -set {name} {value_tcl_formatted}\n"
+
+        return f"{tcl}\n"
 
     @staticmethod
     def _iterate_constraints(
@@ -207,18 +225,22 @@ import_files \\
 
         return f"{tcl}\n"
 
-    def build(
+    def build(  # noqa: PLR0913
         self,
         project_file: Path,
         top: str,
         output_path: Path | None,
         build_step_hooks: list[BuildStepTclHook] | None = None,
+        generics: dict[str, bool | float | StringGenericValue | BitVectorGenericValue]
+        | None = None,
+        hdl: str = "VHDL",
         synth_only: bool = False,
     ) -> str:
         hooks_by_step = self._organize_build_step_hooks(build_step_hooks)
 
         tcl = f"open_project {{{to_tcl_path(project_file)}}}\n"
 
+        tcl += self._add_generics(generics=generics, hdl=hdl)
         tcl += self._run_tool(name="SYNTHESIZE", hooks_by_step=hooks_by_step)
 
         if not synth_only:

@@ -17,6 +17,7 @@ from tsfpga.libero.tcl import LiberoTcl
 from tsfpga.module import BaseModule
 from tsfpga.module_list import ModuleList
 from tsfpga.vivado.common import to_tcl_path
+from tsfpga.vivado.generics import BitVectorGenericValue, StringGenericValue
 
 
 def _get_tcl(**kwargs):
@@ -78,16 +79,6 @@ def test_tcl_sources_are_sourced():
     tcl = _get_tcl(tcl_sources=[Path("hest.tcl"), Path("zebra.tcl")])
     assert f"source -notrace {{{to_tcl_path(Path('hest.tcl'))}}}" in tcl
     assert f"source -notrace {{{to_tcl_path(Path('zebra.tcl'))}}}" in tcl
-
-
-def test_generics_raises_not_implemented_error():
-    with pytest.raises(NotImplementedError):
-        _get_tcl(generics={"apa": 3})
-
-
-def test_no_generics_does_not_raise():
-    assert "generic" not in _get_tcl(generics={})
-    assert "generic" not in _get_tcl(generics=None)
 
 
 def test_constraints():
@@ -153,6 +144,35 @@ def test_build_synth_only_does_not_run_implementation_steps():
     assert "run_tool -name {PLACEROUTE}" not in tcl
     assert "export_bitstream_file" not in tcl
     assert tcl.rstrip().endswith("save_project")
+
+
+def test_build_generics_are_set_before_synthesis():
+    tcl = _get_build_tcl(
+        generics={
+            "apa": 3,
+            "hest": True,
+            "zebra": StringGenericValue("foo"),
+            "zebra_two": BitVectorGenericValue("1010"),
+        },
+        synth_only=True,
+    )
+    generics_idx = tcl.index("set_option -hdl_param -set apa 3")
+    synth_idx = tcl.index("run_tool -name {SYNTHESIZE}")
+    assert generics_idx < synth_idx
+
+    assert "set_option -hdl_param -set hest TRUE" in tcl
+    assert 'set_option -hdl_param -set zebra "foo"' in tcl
+    assert 'set_option -hdl_param -set zebra_two "1010"' in tcl
+
+
+def test_no_generics_gives_no_set_option_hdl_param():
+    assert "set_option -hdl_param" not in _get_build_tcl(generics={}, synth_only=True)
+    assert "set_option -hdl_param" not in _get_build_tcl(generics=None, synth_only=True)
+
+
+def test_build_generics_with_verilog_raises_not_implemented_error():
+    with pytest.raises(NotImplementedError):
+        _get_build_tcl(generics={"apa": 3}, hdl="VERILOG", synth_only=True)
 
 
 def test_build_full_run_includes_all_steps_and_export():

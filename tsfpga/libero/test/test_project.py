@@ -242,6 +242,7 @@ def test_build_module_pre_build_hook_and_create_regs_are_called(libero_project_t
             apa=123,
             project_path=libero_project_test.project_path,
             output_path=libero_project_test.output_path,
+            generics={},
             synth_only=libero_project_test.synth_only,
         )
         module.create_register_synthesis_files.assert_called_once()
@@ -298,6 +299,7 @@ def test_project_build_hooks_should_be_called_with_correct_parameters(libero_pro
     arguments = {
         "project_path": libero_project_test.project_path,
         "output_path": libero_project_test.output_path,
+        "generics": {"static_generic": 2},
         "synth_only": libero_project_test.synth_only,
         "other_parameter": "hest",
         "apa": 123,
