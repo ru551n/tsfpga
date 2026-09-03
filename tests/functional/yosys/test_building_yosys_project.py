@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tsfpga.examples.example_env import get_tsfpga_example_modules
 from tsfpga.module import get_modules
 from tsfpga.system_utils import create_file
 from tsfpga.test.test_utils import file_contains_string
@@ -204,3 +205,24 @@ def test_building_plain_yosys_netlist_project(basic_project_test):
     build_result = project.build(project_path=basic_project_test.project_folder)
     assert build_result.success
     assert sum(build_result.synthesis_size.values()) > 0
+
+
+def test_building_resource_counter_example_module_netlist_projects(tmp_path):
+    """
+    Build the netlist projects defined by the 'resource_counter' example module, to make sure
+    that this real-world usage example (see 'module_resource_counter.py') keeps working.
+    """
+    module = get_tsfpga_example_modules(names_include={"resource_counter"}).get("resource_counter")
+
+    for project in module.get_build_projects():
+        # These are 'None' by default in the example module, since a standard system installation
+        # of GHDL/Yosys/ghdl-yosys-plugin would not need them. Set here to work on this test
+        # machine's non-standard installation.
+        project._ghdl_plugin_path = GHDL_PLUGIN_PATH  # noqa: SLF001
+        project._ghdl_prefix = GHDL_PREFIX  # noqa: SLF001
+
+        project_path = tmp_path / project.name
+        assert project.create(project_path)
+
+        build_result = project.build(project_path)
+        assert build_result.success, project.name
