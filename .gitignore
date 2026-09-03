@@ -16,6 +16,10 @@ hdl-prj.json
 
 .vscode
 
+.venv
+
+*.egg-info
+
 .coverage
 
 tsfpga/examples/modules/*/regs_sim/
