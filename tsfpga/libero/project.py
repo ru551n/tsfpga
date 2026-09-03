@@ -54,8 +54,9 @@ class LiberoProject:
         * A Microcontroller Subsystem (MSS) component can be generated and imported using
           :class:`.MssConfiguration`. Confirmed for PolarFire SoC only.
           See :meth:`.LiberoTcl._add_mss_components`.
-        * :attr:`.BuildResult.synthesis_size` / ``implementation_size`` are not populated, since
-          this requires a resource-utilization report parser that has not yet been implemented.
+        * :attr:`.build_result.BuildResult.synthesis_size` / ``implementation_size`` are not
+          populated, since this requires a resource-utilization report parser that has not yet
+          been implemented.
           The exact machine-parsable format of the Libero SoC "Compile Report" could not be
           confirmed from documentation alone.
     """

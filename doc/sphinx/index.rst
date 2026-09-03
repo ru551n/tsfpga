@@ -26,5 +26,6 @@
 
     api_reference/tsfpga
     api_reference/tsfpga.examples
+    api_reference/tsfpga.libero
     api_reference/tsfpga.tools
     api_reference/tsfpga.vivado

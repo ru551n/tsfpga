@@ -220,6 +220,52 @@ It can be inspected to see if the run passed or failed, and what the resource ut
 build is.
 
 
+.. _libero_build:
+
+Libero SoC (Microchip) support
+-------------------------------
+
+.. warning::
+    The :mod:`tsfpga.libero` plugin has been developed against the Libero SoC Tcl command
+    reference documentation only.
+    It has **not** been verified against a real Libero SoC installation, since none was
+    available during development.
+    Review the generated TCL carefully, and verify against your own Libero SoC installation,
+    before relying on it for real builds.
+
+In addition to :class:`.VivadoProject`, tsfpga also has an experimental :class:`.LiberoProject`
+class for building Microchip Libero SoC projects.
+It implements the same public interface as :class:`.VivadoProject`
+(:meth:`.create() <.LiberoProject.create>`, :meth:`.build() <.LiberoProject.build>`,
+:meth:`.open() <.LiberoProject.open>`, the :meth:`pre_create()/pre_build()/post_build()
+<.LiberoProject.pre_build>` hooks, etc.), so it can be used interchangeably with
+:class:`.VivadoProject` in a :class:`.BuildProjectList`/:func:`.get_build_projects`, and everything
+on this page that is not Vivado-specific applies equally to it.
+
+Known limitations compared to :class:`.VivadoProject`, documented in more detail in the
+:class:`.LiberoProject` class docstring:
+
+* Generics/parameters are set right before synthesis, and only VHDL literal syntax is supported.
+* Both ``.sdc`` and ``.pdc`` constraint files are supported.
+  Scoped constraints and a non-default processing order are not.
+* IP cores can be added using the same tool-agnostic :class:`.IpCoreFile` mechanism as
+  for Vivado.
+* A Microcontroller Subsystem (MSS) component can be generated (using the standalone MSS
+  Configurator executable) and imported using :class:`.MssConfiguration`.
+  This has only been confirmed for PolarFire SoC.
+* :attr:`.build_result.BuildResult.synthesis_size`/``implementation_size`` are not populated,
+  since a Libero SoC resource-utilization report parser has not been implemented.
+
+Below is an example ``module_libero_example.py``, analogous to the ``module_artyz7.py`` example
+above, that sets up a minimal :class:`.LiberoProject` build for a PolarFire SoC part.
+
+.. literalinclude:: ../../tsfpga/examples/modules/libero_example/module_libero_example.py
+   :caption: Example Libero SoC project creation
+   :language: python
+   :lines: 9-55
+   :linenos:
+
+
 .. _generated_tcl:
 
 Example generated TCL

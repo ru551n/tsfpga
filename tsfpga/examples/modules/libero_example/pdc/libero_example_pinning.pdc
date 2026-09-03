@@ -1,0 +1,12 @@
+# -------------------------------------------------------------------------------------------------
+# Illustrative I/O ('.pdc') constraint for the 'libero_example' build project. Demonstrates the
+# 'import_files -io_pdc' mechanism used by 'LiberoTcl._add_constraints'.
+#
+# The syntax below is a best-effort sketch based on Microchip Libero SoC PDC documentation.
+# It has NOT been verified against a real Libero SoC installation, and the pin/IO standard names
+# are placeholders. Replace with real values for your target board/device before use.
+# -------------------------------------------------------------------------------------------------
+
+set_io -port_name {clk} -pin_name {A1} -io_std {LVCMOS33}
+set_io -port_name {input} -pin_name {B1} -io_std {LVCMOS33}
+set_io -port_name {output} -pin_name {C1} -io_std {LVCMOS33}
