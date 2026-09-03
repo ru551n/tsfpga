@@ -89,3 +89,50 @@ The python class for netlist builds, :class:`.VivadoNetlistProject`, is a subcla
 :class:`.VivadoProject`, with marginal differences in settings.
 By separating these builds into separate classes, top level FPGA builds and netlist builds can be
 listed and built separately.
+
+
+
+.. _yosys_netlist_build:
+
+Yosys netlist builds
+---------------------
+
+As an open-source, and typically much faster, alternative to the Vivado-based netlist builds
+above, tsfpga also supports running netlist synthesis using `Yosys <https://yosyshq.net/yosys/>`__
+via the `ghdl-yosys-plugin <https://github.com/ghdl/ghdl-yosys-plugin>`__.
+Since `GHDL <https://ghdl.github.io/ghdl/>`__ is used as the VHDL front end, no Verilog/VHDL
+conversion step is needed, and the whole flow is Vivado-free.
+
+This is done using the :class:`.YosysNetlistBuild` class, or the
+:class:`.YosysXilinxNetlistBuild` subclass which targets Xilinx primitives specifically (LUTs,
+FDs, RAMBs, DSP48s, ...) via the Yosys ``synth_xilinx`` command:
+
+.. code-block:: python
+    :caption: Yosys netlist build example.
+
+    YosysXilinxNetlistBuild(
+        name="result_checker_example",
+        modules=modules,
+        top="example_top_level",
+        family="xc7",
+        build_result_checkers=[
+            TotalLuts(LessThan(50)),
+            Ramb36(EqualTo(0)),
+            Ramb18(EqualTo(1)),
+        ]
+    )
+
+Since the Yosys utilization report uses the same resource naming convention as the Vivado
+utilization report, the checkers in :mod:`.vivado.build_result_checker` can be used directly,
+just like for the Vivado-based netlist builds.
+Note that the ``MaximumLogicLevel`` checker is not supported, since that concept does not apply to
+a Yosys synthesis result.
+
+Depending on your installation, GHDL might not be able to locate its standard libraries
+(``std``, ``ieee``, ...) when invoked from the ``ghdl-yosys-plugin`` inside Yosys.
+If synthesis fails with an error indicating that these libraries can not be found, set the
+``ghdl_prefix`` argument to :meth:`.YosysNetlistBuild.__init__` to the value printed as
+"library prefix" by ``ghdl --disp-config``.
+Likewise, if the ``ghdl-yosys-plugin`` is not installed in a location where Yosys finds it
+automatically, set the ``ghdl_plugin_path`` argument to point at the plugin module
+(typically named ``ghdl.so``).

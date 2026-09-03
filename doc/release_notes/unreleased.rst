@@ -5,3 +5,9 @@ Breaking changes
   to :func:`.get_build_project_list`.
 
 Requires VUnit version 5.0.0.dev6 or later.
+
+Added
+
+* Add :class:`.YosysNetlistBuild` and :class:`.YosysXilinxNetlistBuild` for running
+  :ref:`netlist builds <yosys_netlist_build>` with Yosys and the ``ghdl-yosys-plugin``,
+  as an open-source alternative to :class:`.VivadoNetlistProject`.
