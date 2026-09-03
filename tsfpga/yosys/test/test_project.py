@@ -166,6 +166,33 @@ def test_get_ghdl_generic_value():
         _get_ghdl_generic_value("apa")
 
 
+def test_get_read_verilog_command_returns_none_if_no_verilog_files(tmp_path):
+    modules = _create_module(tmp_path)
+    project = YosysNetlistBuild(name="apa", modules=modules)
+
+    assert project._get_read_verilog_command() is None  # noqa: SLF001
+
+
+def test_get_read_verilog_command_with_verilog_and_systemverilog_files(tmp_path):
+    src_path = tmp_path / "apa" / "src"
+    create_file(src_path / "counter.v", "module counter (); endmodule\n")
+    create_file(src_path / "adder.sv", "module adder (); endmodule\n")
+    create_file(src_path / "counter_defines.vh", "`define WIDTH 8\n")
+
+    modules = _create_module(tmp_path)
+    project = YosysNetlistBuild(name="apa", modules=modules)
+
+    command = project._get_read_verilog_command()  # noqa: SLF001
+
+    assert command is not None
+    assert command.startswith("read_verilog -sv ")
+    assert f"-I{src_path.resolve().as_posix()}" in command
+    assert (src_path / "counter.v").resolve().as_posix() in command
+    assert (src_path / "adder.sv").resolve().as_posix() in command
+    # Header files are 'include'd by the source files, not passed as source arguments themselves.
+    assert "counter_defines.vh" not in command
+
+
 @pytest.fixture
 def yosys_project_test(tmp_path):
     class YosysProjectTest:

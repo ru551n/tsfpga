@@ -14,3 +14,5 @@ Added
   as an open-source alternative to :class:`.VivadoNetlistProject`.
 * Add :class:`.BlockRams` build result checker for a generic, architecture-independent block RAM
   count, usable with any of the ``Yosys*NetlistBuild`` classes above.
+* Add support for mixed VHDL/Verilog/SystemVerilog designs in the ``Yosys*NetlistBuild`` classes
+  above, as long as the top level is a VHDL entity.

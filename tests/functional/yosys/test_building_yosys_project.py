@@ -256,6 +256,87 @@ def test_building_microchip_netlist_project(basic_project_test):
     assert build_result.synthesis_size["FFs"] > 0
 
 
+def test_building_mixed_vhdl_and_verilog_netlist_project(tmp_path):
+    """
+    Build a Yosys netlist project where the VHDL top level instantiates a Verilog submodule.
+    Verifies that Verilog source files, which are not analyzed by GHDL, are picked up by Yosys
+    directly via a 'read_verilog' command, and bound to the unbound VHDL component instantiation
+    by name.
+    """
+    module_folder = tmp_path / "modules" / "apa"
+
+    create_file(
+        module_folder / "src" / "counter.v",
+        """\
+module counter (
+    input  wire clk,
+    input  wire increment,
+    output reg [7:0] count
+);
+
+  always @(posedge clk) begin
+    if (increment) begin
+      count <= count + 1;
+    end
+  end
+
+endmodule
+""",
+    )
+
+    create_file(
+        module_folder / "src" / "test_proj_top.vhd",
+        """
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity test_proj_top is
+  port (
+    clk : in std_ulogic;
+    increment : in std_ulogic;
+    count : out std_ulogic_vector(7 downto 0)
+  );
+end entity;
+
+architecture a of test_proj_top is
+
+  component counter is
+    port (
+      clk : in std_ulogic;
+      increment : in std_ulogic;
+      count : out std_ulogic_vector(7 downto 0)
+    );
+  end component;
+
+begin
+
+  counter_inst : counter
+    port map (
+      clk => clk,
+      increment => increment,
+      count => count
+    );
+
+end architecture;
+""",
+    )
+
+    modules = get_modules(modules_folder=module_folder.parent)
+    project = YosysNetlistBuild(
+        name="test_proj",
+        modules=modules,
+        ghdl_plugin_path=GHDL_PLUGIN_PATH,
+        ghdl_prefix=GHDL_PREFIX,
+    )
+
+    project_path = tmp_path / "yosys"
+    assert project.create(project_path)
+
+    build_result = project.build(project_path)
+    assert build_result.success
+    assert sum(build_result.synthesis_size.values()) > 0
+
+
 def test_building_resource_counter_example_module_netlist_projects(tmp_path):
     """
     Build the netlist projects defined by the 'resource_counter' example module, to make sure

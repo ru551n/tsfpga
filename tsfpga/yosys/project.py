@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from vunit.ui import VUnit
 
+from tsfpga.hdl_file import HdlFile
 from tsfpga.system_utils import create_directory, read_file
 from tsfpga.vivado.build_result import BuildResult
 from tsfpga.vivado.generics import BitVectorGenericValue, StringGenericValue
@@ -46,6 +47,13 @@ class YosysNetlistBuild:
     no bitstream is produced.
     This is a great tool for getting quick feedback on the resource utilization of a design, or
     a sub-component of a design, during development.
+
+    The top level must be a VHDL entity.
+    Verilog and SystemVerilog source files found among the modules' synthesis files are read
+    directly by Yosys (bypassing GHDL) and may be instantiated from VHDL as unbound components,
+    as long as the component name matches the Verilog/SystemVerilog module name.
+    This is useful for e.g. vendor IP delivered as Verilog, instantiated from an otherwise
+    VHDL design.
 
     .. note::
         Requires GHDL, Yosys, and the ``ghdl-yosys-plugin`` module to be installed and
@@ -262,6 +270,59 @@ class YosysNetlistBuild:
             for source_file in compile_order
         ]
 
+    def _get_verilog_source_files(self) -> list[Path]:
+        """
+        Return: A list of paths to all the Verilog and SystemVerilog source files (not headers)
+            found in the modules of this build.
+            These are read directly by Yosys, bypassing GHDL entirely, and may be instantiated
+            from the VHDL top level as unbound components with a matching name.
+        """
+        source_types = (HdlFile.Type.VERILOG_SOURCE, HdlFile.Type.SYSTEMVERILOG_SOURCE)
+
+        return [
+            hdl_file.path
+            for module in self.modules
+            for hdl_file in module.get_synthesis_files(include_vhdl_files=False)
+            if hdl_file.type in source_types
+        ]
+
+    def _get_verilog_include_directories(self) -> list[Path]:
+        """
+        Return: A sorted list of the unique directories that contain Verilog and SystemVerilog
+            header files in the modules of this build.
+            Used so that Yosys can resolve ```` `include ```` directives in the source files.
+        """
+        header_types = (HdlFile.Type.VERILOG_HEADER, HdlFile.Type.SYSTEMVERILOG_HEADER)
+
+        return sorted(
+            {
+                hdl_file.path.parent
+                for module in self.modules
+                for hdl_file in module.get_synthesis_files(include_vhdl_files=False)
+                if hdl_file.type in header_types
+            }
+        )
+
+    def _get_read_verilog_command(self) -> str | None:
+        """
+        Return: A Yosys ``read_verilog`` command that reads all the Verilog and SystemVerilog
+            source files found in the modules of this build, or ``None`` if there are no such
+            files.
+        """
+        verilog_files = self._get_verilog_source_files()
+        if not verilog_files:
+            return None
+
+        include_flags = " ".join(
+            f"-I{to_yosys_path(directory)}" for directory in self._get_verilog_include_directories()
+        )
+        file_arguments = " ".join(to_yosys_path(file_path) for file_path in verilog_files)
+
+        # The '-sv' flag enables the SystemVerilog parser, which is a superset of Verilog and
+        # hence works fine for plain Verilog files as well.
+        command = f"read_verilog -sv {include_flags} {file_arguments}"
+        return " ".join(command.split())
+
     def create(
         self,
         project_path: Path,
@@ -361,7 +422,15 @@ class YosysNetlistBuild:
             f"--work={top_library} {generic_arguments} {self.top}"
         )
 
-        commands = [
+        commands = []
+
+        # Read any Verilog/SystemVerilog source files before elaborating the VHDL, so that Yosys
+        # can bind the unbound components in the VHDL design to the modules read here.
+        read_verilog_command = self._get_read_verilog_command()
+        if read_verilog_command is not None:
+            commands.append(read_verilog_command)
+
+        commands += [
             ghdl_command,
             self._get_synth_command(),
             f"tee -o {to_yosys_path(utilization_report_file)} stat",

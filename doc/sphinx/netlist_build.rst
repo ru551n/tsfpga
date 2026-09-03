@@ -100,8 +100,15 @@ Yosys netlist builds
 As an open-source, and typically much faster, alternative to the Vivado-based netlist builds
 above, tsfpga also supports running netlist synthesis using `Yosys <https://yosyshq.net/yosys/>`__
 via the `ghdl-yosys-plugin <https://github.com/ghdl/ghdl-yosys-plugin>`__.
-Since `GHDL <https://ghdl.github.io/ghdl/>`__ is used as the VHDL front end, no Verilog/VHDL
-conversion step is needed, and the whole flow is Vivado-free.
+`GHDL <https://ghdl.github.io/ghdl/>`__ is used as the VHDL front end, so the whole flow is
+Vivado-free.
+
+The top level must be a VHDL entity.
+Any Verilog and SystemVerilog source files found among the modules are read directly by Yosys
+(bypassing GHDL), and may be instantiated from the VHDL design as unbound components, as long as
+the component name matches the Verilog/SystemVerilog module name.
+This is useful for e.g. vendor IP delivered as Verilog, instantiated from an otherwise VHDL
+design.
 
 This is done using the :class:`.YosysNetlistBuild` class, or one of the architecture-specific
 subclasses that target a certain vendor's primitives via a specific Yosys ``synth_*`` command:
