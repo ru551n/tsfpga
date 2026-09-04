@@ -6,12 +6,20 @@
 # https://github.com/tsfpga/tsfpga
 # --------------------------------------------------------------------------------------------------
 
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from tsfpga.yosys.common import get_ghdl_path, get_yosys_path, run_ghdl, run_yosys, to_yosys_path
+from tsfpga.yosys.common import (
+    get_ghdl_library_prefix,
+    get_ghdl_path,
+    get_yosys_path,
+    run_ghdl,
+    run_yosys,
+    to_yosys_path,
+)
 
 THIS_DIR = Path(__file__).parent
 
@@ -44,7 +52,10 @@ def test_run_yosys():
         str(script_file.resolve()),
     ]
 
-    with patch("tsfpga.yosys.common.Process") as mocked_process:
+    with (
+        patch("tsfpga.yosys.common.Process") as mocked_process,
+        patch("tsfpga.yosys.common.get_ghdl_library_prefix", return_value=None),
+    ):
         mocked_process.NonZeroExitCode = ValueError
         assert run_yosys(
             yosys_path=yosys_path,
@@ -54,7 +65,10 @@ def test_run_yosys():
         )
         mocked_process.assert_called_once_with(args=expected_cmd, cwd=THIS_DIR, env=None)
 
-    with patch("tsfpga.yosys.common.Process") as mocked_process:
+    with (
+        patch("tsfpga.yosys.common.Process") as mocked_process,
+        patch("tsfpga.yosys.common.get_ghdl_library_prefix", return_value=None),
+    ):
         mocked_process.NonZeroExitCode = ValueError
         mocked_process.return_value.consume_output.side_effect = ValueError("Non-zero exit code!")
         assert not run_yosys(
@@ -70,7 +84,10 @@ def test_run_yosys_without_plugin_does_not_add_dash_m_argument():
     script_file = THIS_DIR / "apa.ys"
     expected_cmd = [str(yosys_path.resolve()), "-s", str(script_file.resolve())]
 
-    with patch("tsfpga.yosys.common.Process") as mocked_process:
+    with (
+        patch("tsfpga.yosys.common.Process") as mocked_process,
+        patch("tsfpga.yosys.common.get_ghdl_library_prefix", return_value=None),
+    ):
         mocked_process.NonZeroExitCode = ValueError
         assert run_yosys(
             yosys_path=yosys_path, ghdl_plugin_path=None, script_file=script_file, cwd=THIS_DIR
@@ -83,7 +100,10 @@ def test_run_yosys_sets_ghdl_prefix_environment_variable():
     script_file = THIS_DIR / "apa.ys"
     ghdl_prefix = THIS_DIR / "ghdl_libs"
 
-    with patch("tsfpga.yosys.common.Process") as mocked_process:
+    with (
+        patch("tsfpga.yosys.common.Process") as mocked_process,
+        patch("tsfpga.yosys.common.get_ghdl_library_prefix") as mocked_get_prefix,
+    ):
         mocked_process.NonZeroExitCode = ValueError
         assert run_yosys(
             yosys_path=yosys_path,
@@ -94,6 +114,67 @@ def test_run_yosys_sets_ghdl_prefix_environment_variable():
         )
         _, kwargs = mocked_process.call_args
         assert kwargs["env"]["GHDL_PREFIX"] == str(ghdl_prefix.resolve())
+        # Explicit argument shall take precedence: auto-detection shall not even be attempted.
+        mocked_get_prefix.assert_not_called()
+
+
+def test_run_yosys_auto_detects_ghdl_prefix_environment_variable():
+    yosys_path = THIS_DIR / "yosys.exe"
+    ghdl_path = THIS_DIR / "ghdl.exe"
+    script_file = THIS_DIR / "apa.ys"
+    ghdl_prefix = THIS_DIR / "ghdl_libs"
+
+    with (
+        patch("tsfpga.yosys.common.Process") as mocked_process,
+        patch(
+            "tsfpga.yosys.common.get_ghdl_library_prefix", return_value=ghdl_prefix
+        ) as mocked_get_prefix,
+    ):
+        mocked_process.NonZeroExitCode = ValueError
+        assert run_yosys(
+            yosys_path=yosys_path,
+            ghdl_plugin_path=None,
+            script_file=script_file,
+            cwd=THIS_DIR,
+            ghdl_path=ghdl_path,
+        )
+        mocked_get_prefix.assert_called_once_with(ghdl_path)
+        _, kwargs = mocked_process.call_args
+        assert kwargs["env"]["GHDL_PREFIX"] == str(ghdl_prefix.resolve())
+
+
+def test_get_ghdl_library_prefix():
+    completed_process = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=(
+            "command line prefix (--PREFIX): (not set)\n"
+            "environment prefix (GHDL_PREFIX): (not set)\n"
+            "exec prefix (from program name): /apa/ghdl\n"
+            "library prefix: /apa/ghdl/lib/ghdl\n"
+        ),
+    )
+    with patch("tsfpga.yosys.common.subprocess.run", return_value=completed_process):
+        assert get_ghdl_library_prefix() == Path("/apa/ghdl/lib/ghdl")
+
+
+def test_get_ghdl_library_prefix_returns_none_if_command_fails():
+    with patch(
+        "tsfpga.yosys.common.subprocess.run",
+        side_effect=subprocess.CalledProcessError(1, []),
+    ):
+        assert get_ghdl_library_prefix() is None
+
+
+def test_get_ghdl_library_prefix_returns_none_if_ghdl_is_not_found():
+    with patch("tsfpga.yosys.common.which", return_value=None):
+        assert get_ghdl_library_prefix() is None
+
+
+def test_get_ghdl_library_prefix_returns_none_if_output_can_not_be_parsed():
+    completed_process = subprocess.CompletedProcess(args=[], returncode=0, stdout="apa\n")
+    with patch("tsfpga.yosys.common.subprocess.run", return_value=completed_process):
+        assert get_ghdl_library_prefix() is None
 
 
 def test_get_ghdl_path_raises_exception_if_not_found_in_path():

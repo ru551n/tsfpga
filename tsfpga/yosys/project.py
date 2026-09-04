@@ -159,12 +159,13 @@ class YosysNetlistBuild:
                 Can be left out if the plugin is already available to Yosys without explicitly
                 loading it (e.g. if it has been installed in the Yosys plugin directory).
             ghdl_prefix: Value to set the ``GHDL_PREFIX`` environment variable to when running
-                Yosys with the ``ghdl-yosys-plugin``. Required on some systems, since the
-                plugin does not necessarily know where to find the GHDL standard libraries
-                (``std``, ``ieee``, ...) on its own. Corresponds to the "library prefix" printed
-                by ``ghdl --disp-config``.
-                Can be left out if the plugin already finds the libraries on its own (e.g. if
-                GHDL was installed in a standard system location).
+                Yosys with the ``ghdl-yosys-plugin``. The plugin is loaded as part of the Yosys
+                process, and can not find the GHDL standard libraries (``std``, ``ieee``, ...)
+                on its own the way the standalone ``ghdl`` executable can.
+                Corresponds to the "library prefix" printed by ``ghdl --disp-config``.
+                If left out, this is auto-detected by calling ``ghdl --disp-config`` against
+                the executable given by ``ghdl_path`` above.
+                Set explicitly to override the auto-detected value, or if auto-detection fails.
             defined_at: Optional path to the file where you defined this project.
                 To get a useful ``build_fpga.py --list`` message. Is useful when you have many
                 projects set up.
@@ -620,6 +621,7 @@ class YosysNetlistBuild:
             ghdl_plugin_path=self._ghdl_plugin_path,
             script_file=script_file,
             cwd=output_path,
+            ghdl_path=self._ghdl_path,
             ghdl_prefix=self._ghdl_prefix,
         ):
             print(f'ERROR: Yosys synthesis failed for "{self.name}".')

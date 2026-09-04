@@ -19,3 +19,6 @@ Added
 * Add support for a Verilog/SystemVerilog top level (or a design with no VHDL top level at all)
   in the ``Yosys*NetlistBuild`` classes above, via the new ``vhdl_entities`` argument to
   :meth:`.YosysNetlistBuild.__init__`.
+* Auto-detect the GHDL "library prefix" needed by the ``ghdl-yosys-plugin`` in the
+  ``Yosys*NetlistBuild`` classes above, by calling ``ghdl --disp-config``. The ``ghdl_prefix``
+  argument to :meth:`.YosysNetlistBuild.__init__` is now only needed to override this.

@@ -165,11 +165,12 @@ vendor-agnostic resource count of a design, but note that no aggregated resource
 Note that the ``MaximumLogicLevel`` checker is not supported, since that concept does not apply to
 a Yosys synthesis result.
 
-Depending on your installation, GHDL might not be able to locate its standard libraries
-(``std``, ``ieee``, ...) when invoked from the ``ghdl-yosys-plugin`` inside Yosys.
-If synthesis fails with an error indicating that these libraries can not be found, set the
-``ghdl_prefix`` argument to :meth:`.YosysNetlistBuild.__init__` to the value printed as
-"library prefix" by ``ghdl --disp-config``.
+The ``ghdl-yosys-plugin`` module, running inside Yosys, is not able to locate GHDL's standard
+libraries (``std``, ``ieee``, ...) on its own.
+This is handled automatically: :meth:`.YosysNetlistBuild.__init__` calls
+``ghdl --disp-config`` to find the "library prefix" and forwards it to the plugin.
+If this auto-detection fails, or finds the wrong GHDL installation, set the ``ghdl_prefix``
+argument explicitly to override it.
 Likewise, if the ``ghdl-yosys-plugin`` is not installed in a location where Yosys finds it
 automatically, set the ``ghdl_plugin_path`` argument to point at the plugin module
 (typically named ``ghdl.so``).

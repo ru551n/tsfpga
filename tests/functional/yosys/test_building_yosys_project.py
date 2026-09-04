@@ -32,7 +32,8 @@ GHDL_PLUGIN_PATH = (
 )
 
 # Value for the 'GHDL_PREFIX' environment variable, see 'YosysNetlistBuild' docstring.
-# Can be left unset if GHDL is installed in a standard system location.
+# Normally not needed: auto-detected via 'ghdl --disp-config'. Can be set to override, e.g. if
+# auto-detection fails or picks the wrong GHDL installation.
 GHDL_PREFIX = Path(os.environ["TSFPGA_GHDL_PREFIX"]) if "TSFPGA_GHDL_PREFIX" in os.environ else None
 
 # This whole test suite requires GHDL and Yosys, with the 'ghdl-yosys-plugin', to be installed
