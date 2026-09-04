@@ -193,117 +193,6 @@ def test_get_read_verilog_command_with_verilog_and_systemverilog_files(tmp_path)
     assert "counter_defines.vh" not in command
 
 
-def test_find_module_for_vhdl_entity(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="apa_top")
-    modules = _create_module(tmp_path, module_name="hest", top_name="hest_sub")
-
-    project = YosysNetlistBuild(name="apa", modules=modules)
-
-    apa_module = project._find_module_for_vhdl_entity("apa_top")  # noqa: SLF001
-    assert apa_module.name == "apa"
-
-    hest_module = project._find_module_for_vhdl_entity("hest_sub")  # noqa: SLF001
-    assert hest_module.name == "hest"
-
-    assert project._find_module_for_vhdl_entity("non_existent") is None  # noqa: SLF001
-
-
-def test_find_module_for_vhdl_entity_raises_if_multiple_found(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="duplicate")
-    modules = _create_module(tmp_path, module_name="hest", top_name="duplicate")
-
-    project = YosysNetlistBuild(name="apa", modules=modules)
-
-    with pytest.raises(ValueError, match='Found multiple VHDL source files for entity "duplicate"'):
-        project._find_module_for_vhdl_entity("duplicate")  # noqa: SLF001
-
-
-def test_get_ghdl_commands_with_vhdl_top(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="apa_top")
-    project = YosysNetlistBuild(name="apa", modules=modules, top="apa_top")
-
-    commands = project._get_ghdl_commands(workdir=tmp_path, all_generics={})  # noqa: SLF001
-
-    assert len(commands) == 1
-    assert commands[0].startswith("ghdl --std=08")
-    assert f"--workdir={tmp_path}" in commands[0]
-    assert "--work=apa" in commands[0]
-    assert commands[0].endswith(" apa_top")
-
-
-def test_get_ghdl_commands_with_vhdl_top_and_generics(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="apa_top")
-    project = YosysNetlistBuild(name="apa", modules=modules, top="apa_top")
-
-    commands = project._get_ghdl_commands(  # noqa: SLF001
-        workdir=tmp_path, all_generics={"enable": True}
-    )
-
-    assert len(commands) == 1
-    assert "-genable=true" in commands[0]
-
-
-def test_get_ghdl_commands_with_non_vhdl_top_and_vhdl_entities(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="sub_a")
-    modules = _create_module(tmp_path, module_name="apa", top_name="sub_b")
-
-    project = YosysNetlistBuild(
-        name="apa", modules=modules, top="verilog_top", vhdl_entities=["sub_a", "sub_b"]
-    )
-
-    commands = project._get_ghdl_commands(workdir=tmp_path, all_generics={})  # noqa: SLF001
-
-    assert len(commands) == 2
-    assert commands[0].endswith(" sub_a")
-    assert commands[1].endswith(" sub_b")
-
-
-def test_get_ghdl_commands_with_non_vhdl_top_and_no_vhdl_entities(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="apa_top")
-    project = YosysNetlistBuild(name="apa", modules=modules, top="verilog_top")
-
-    commands = project._get_ghdl_commands(workdir=tmp_path, all_generics={})  # noqa: SLF001
-
-    assert commands == []
-
-
-def test_get_ghdl_commands_raises_if_vhdl_entity_not_found(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="apa_top")
-    project = YosysNetlistBuild(
-        name="apa", modules=modules, top="verilog_top", vhdl_entities=["non_existent"]
-    )
-
-    with pytest.raises(
-        ValueError,
-        match='Could not find a VHDL source file for entity "non_existent" \\(listed in',
-    ):
-        project._get_ghdl_commands(workdir=tmp_path, all_generics={})  # noqa: SLF001
-
-
-def test_get_ghdl_commands_raises_if_generics_with_non_vhdl_top(tmp_path):
-    modules = _create_module(tmp_path, module_name="apa", top_name="apa_top")
-    project = YosysNetlistBuild(name="apa", modules=modules, top="verilog_top")
-
-    with pytest.raises(ValueError, match="Generics are only supported"):
-        project._get_ghdl_commands(  # noqa: SLF001
-            workdir=tmp_path, all_generics={"enable": True}
-        )
-
-
-def test_get_synthesis_files_in_compile_order_falls_back_to_full_compile_order_for_non_vhdl_top(
-    tmp_path,
-):
-    modules = _create_module(tmp_path, module_name="apa", top_name="sub_a")
-    modules = _create_module(tmp_path, module_name="apa", top_name="sub_b")
-
-    project = YosysNetlistBuild(name="apa", modules=modules, top="verilog_top")
-
-    files_in_compile_order = project._get_synthesis_files_in_compile_order()  # noqa: SLF001
-
-    file_names = {Path(file_path).name for file_path, _library_name in files_in_compile_order}
-    assert file_names == {"sub_a.vhd", "sub_b.vhd"}
-
-
 @pytest.fixture
 def yosys_project_test(tmp_path):
     class YosysProjectTest:
@@ -542,3 +431,28 @@ def test_non_vhdl_top_with_vhdl_entities(yosys_project_test):
     assert script_content.splitlines()[0].endswith(" sub_a")
     assert script_content.splitlines()[1].endswith(" sub_b")
     assert "-top verilog_top" in script_content
+
+
+def test_non_vhdl_top_with_vhdl_entity_not_found_should_raise_exception(yosys_project_test):
+    modules = _create_module(yosys_project_test.modules_path)
+    project = YosysNetlistBuild(
+        name="apa", modules=modules, top="verilog_top", vhdl_entities=["non_existent"]
+    )
+
+    yosys_project_test.build_time_generics = {}
+    yosys_project_test.create(project)
+
+    with pytest.raises(
+        ValueError, match='Could not find a VHDL source file for entity "non_existent"'
+    ):
+        yosys_project_test.build(project)
+
+
+def test_non_vhdl_top_with_generics_should_raise_exception(yosys_project_test):
+    modules = _create_module(yosys_project_test.modules_path)
+    project = YosysNetlistBuild(name="apa", modules=modules, top="verilog_top")
+
+    yosys_project_test.create(project)
+
+    with pytest.raises(ValueError, match="Generics are only supported"):
+        yosys_project_test.build(project)

@@ -453,56 +453,49 @@ class YosysNetlistBuild:
         Return: A list of Yosys ``ghdl`` commands that elaborate the VHDL entities of this
             build, making them available to Yosys.
         """
-        generic_arguments = " ".join(
-            f"-g{name}={_get_ghdl_generic_value(value)}" for name, value in all_generics.items()
-        )
-
         top_level_module = self._find_module_for_vhdl_entity(self.top)
         if top_level_module is not None:
             # The 'top' is a VHDL entity: elaborate it directly. GHDL will pull in everything it
             # depends on, including any Verilog/SystemVerilog modules read by
             # '_get_read_verilog_command', which are bound by name to unbound VHDL component
             # instantiations.
-            return [
-                self._get_ghdl_elaborate_command(
-                    workdir=workdir,
-                    entity_name=self.top,
-                    library_name=top_level_module.library_name,
-                    generic_arguments=generic_arguments,
-                )
-            ]
-
-        if all_generics:
-            raise ValueError(
-                "Generics are only supported when 'top' is a VHDL entity. "
-                f'"{self.top}" is not a VHDL entity in the given modules. '
-                "Did you mean to use the 'vhdl_entities' argument instead?"
-            )
-
-        # The 'top' is a Verilog/SystemVerilog module (or the design has no VHDL at all).
-        # Elaborate each of the explicitly listed 'vhdl_entities' individually, so that they
-        # become available (under their own entity name) for Yosys's 'hierarchy' pass to bind
-        # to instantiations from the Verilog/SystemVerilog top level (or from other VHDL
-        # entities). Any entity that ends up unused is pruned by Yosys.
-        ghdl_commands = []
-        for entity_name in self._vhdl_entities:
-            module = self._find_module_for_vhdl_entity(entity_name)
-            if module is None:
+            entities = [(self.top, top_level_module)]
+        else:
+            if all_generics:
                 raise ValueError(
-                    f'Could not find a VHDL source file for entity "{entity_name}" '
-                    '(listed in "vhdl_entities").'
+                    "Generics are only supported when 'top' is a VHDL entity. "
+                    f'"{self.top}" is not a VHDL entity in the given modules. '
+                    "Did you mean to use the 'vhdl_entities' argument instead?"
                 )
 
-            ghdl_commands.append(
-                self._get_ghdl_elaborate_command(
-                    workdir=workdir,
-                    entity_name=entity_name,
-                    library_name=module.library_name,
-                    generic_arguments=generic_arguments,
-                )
+            # The 'top' is a Verilog/SystemVerilog module (or the design has no VHDL at all).
+            # Elaborate each of the explicitly listed 'vhdl_entities' individually, so that they
+            # become available (under their own entity name) for Yosys's 'hierarchy' pass to
+            # bind to instantiations from the Verilog/SystemVerilog top level (or from other
+            # VHDL entities). Any entity that ends up unused is pruned by Yosys.
+            entities = []
+            for entity_name in self._vhdl_entities:
+                module = self._find_module_for_vhdl_entity(entity_name)
+                if module is None:
+                    raise ValueError(
+                        f'Could not find a VHDL source file for entity "{entity_name}" '
+                        '(listed in "vhdl_entities").'
+                    )
+                entities.append((entity_name, module))
+
+        generic_arguments = " ".join(
+            f"-g{name}={_get_ghdl_generic_value(value)}" for name, value in all_generics.items()
+        )
+
+        return [
+            self._get_ghdl_elaborate_command(
+                workdir=workdir,
+                entity_name=entity_name,
+                library_name=module.library_name,
+                generic_arguments=generic_arguments,
             )
-
-        return ghdl_commands
+            for entity_name, module in entities
+        ]
 
     def _get_yosys_script(
         self,
