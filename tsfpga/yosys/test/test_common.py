@@ -144,6 +144,7 @@ def test_run_yosys_auto_detects_ghdl_prefix_environment_variable():
 
 
 def test_get_ghdl_library_prefix():
+    ghdl_path = THIS_DIR / "ghdl.exe"
     completed_process = subprocess.CompletedProcess(
         args=[],
         returncode=0,
@@ -155,15 +156,16 @@ def test_get_ghdl_library_prefix():
         ),
     )
     with patch("tsfpga.yosys.common.subprocess.run", return_value=completed_process):
-        assert get_ghdl_library_prefix() == Path("/apa/ghdl/lib/ghdl")
+        assert get_ghdl_library_prefix(ghdl_path) == Path("/apa/ghdl/lib/ghdl")
 
 
 def test_get_ghdl_library_prefix_returns_none_if_command_fails():
+    ghdl_path = THIS_DIR / "ghdl.exe"
     with patch(
         "tsfpga.yosys.common.subprocess.run",
         side_effect=subprocess.CalledProcessError(1, []),
     ):
-        assert get_ghdl_library_prefix() is None
+        assert get_ghdl_library_prefix(ghdl_path) is None
 
 
 def test_get_ghdl_library_prefix_returns_none_if_ghdl_is_not_found():
@@ -172,9 +174,10 @@ def test_get_ghdl_library_prefix_returns_none_if_ghdl_is_not_found():
 
 
 def test_get_ghdl_library_prefix_returns_none_if_output_can_not_be_parsed():
+    ghdl_path = THIS_DIR / "ghdl.exe"
     completed_process = subprocess.CompletedProcess(args=[], returncode=0, stdout="apa\n")
     with patch("tsfpga.yosys.common.subprocess.run", return_value=completed_process):
-        assert get_ghdl_library_prefix() is None
+        assert get_ghdl_library_prefix(ghdl_path) is None
 
 
 def test_get_ghdl_path_raises_exception_if_not_found_in_path():

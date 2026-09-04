@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
-from argparse import Namespace
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -223,15 +222,17 @@ class YosysNetlistBuild:
         if self._vunit_proj is None:
             # VUnit is only used to resolve the compile order of the VHDL source files, not to
             # run any simulations. Hence the output is placed in a throwaway temporary
-            # directory, and the (rather expensive) compilation of simulation builtins is
-            # skipped.
+            # directory. Simulation builtins are not compiled, since VUnit does not do so
+            # unless 'add_vhdl_builtins' is called explicitly (which is not done here).
+            # Going via 'from_argv' with real command line argument strings (rather than
+            # constructing an 'argparse.Namespace' object by hand) means VUnit's own argument
+            # parser fills in every attribute it needs, so this does not break when VUnit adds
+            # more arguments/attributes in a future release.
             output_path = tempfile.mkdtemp(prefix="tsfpga_yosys_vunit_")
-            arguments = Namespace(
-                output_path=output_path, log_level="error", no_color=True, clean=False
-            )
+            argv = ["--output-path", output_path, "--log-level", "error", "--no-color"]
 
             with _suppress_stdout():
-                self._vunit_proj = VUnit.from_args(args=arguments, compile_builtins=False)
+                self._vunit_proj = VUnit.from_argv(argv=argv)
 
             for module in self.modules:
                 vunit_library = self._vunit_proj.add_library(
