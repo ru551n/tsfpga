@@ -92,6 +92,7 @@ per-file-ignores."**/test_*.py" = [
     "PT011",
     # Allow a little more sloppy code.
     "PLR0913",
+    "PLR0917",
     # Are not run with optimization.
     "S101",
     # Allow some sloppier calls.
@@ -102,6 +103,14 @@ per-file-ignores."**/test/**/*.py" = [
     # Are not run with optimization.
     "S101",
 ]
+
+
+[tool.ruff.lint.flake8-copyright]
+
+# Our copyright notice convention does not include a year, which is what the default
+# "notice-rgx" requires. Match our actual convention instead.
+# https://docs.astral.sh/ruff/settings/#lint_flake8-copyright_notice-rgx
+notice-rgx = "Copyright \\(c\\) Lukas Vik\\. All rights reserved\\."
 
 
 [tool.ruff.lint.isort]
