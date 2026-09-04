@@ -19,7 +19,7 @@ from tsfpga import TSFPGA_TCL
 from tsfpga.build_step_tcl_hook import BuildStepTclHook
 from tsfpga.constraint import Constraint
 from tsfpga.hdl_file import HdlFile
-from tsfpga.system_utils import create_file, read_file
+from tsfpga.system_utils import copy_and_combine_dicts, create_file, read_file
 
 from .build_result import BuildResult
 from .common import run_vivado_gui, run_vivado_tcl, to_tcl_path
@@ -924,25 +924,3 @@ class VivadoIpCoreProject(VivadoProject):
         Not implemented.
         """
         raise NotImplementedError("IP core project can not be built")
-
-
-def copy_and_combine_dicts(
-    dict_first: dict[str, Any] | None, dict_second: dict[str, Any] | None
-) -> dict[str, Any]:
-    """
-    Will prefer values in the second dict, in case the same key occurs in both.
-    Will return an empty dictionary if both are ``None``.
-    """
-    if dict_first is None:
-        if dict_second is None:
-            return {}
-
-        return dict_second.copy()
-
-    if dict_second is None:
-        return dict_first.copy()
-
-    result = dict_first.copy()
-    result.update(dict_second)
-
-    return result

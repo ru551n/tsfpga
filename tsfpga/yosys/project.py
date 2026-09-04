@@ -19,11 +19,10 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from vunit.ui import VUnit
 
+from tsfpga.build_result import BuildResult
+from tsfpga.generics import BitVectorGenericValue, StringGenericValue
 from tsfpga.hdl_file import HdlFile
-from tsfpga.system_utils import create_directory, read_file
-from tsfpga.vivado.build_result import BuildResult
-from tsfpga.vivado.generics import BitVectorGenericValue, StringGenericValue
-from tsfpga.vivado.project import copy_and_combine_dicts
+from tsfpga.system_utils import copy_and_combine_dicts, create_directory, read_file
 
 from .common import run_ghdl, run_yosys, to_yosys_path
 from .utilization_parser import YosysUtilizationParser
@@ -188,7 +187,7 @@ class YosysNetlistBuild:
         self.name = name
         self.modules = modules.copy()
         self.top = name + "_top" if top is None else top
-        self._vhdl_entities = [] if vhdl_entities is None else list(vhdl_entities)
+        self.vhdl_entities = [] if vhdl_entities is None else list(vhdl_entities)
         self.static_generics = {} if generics is None else generics.copy()
         self.build_result_checkers = (
             [] if build_result_checkers is None else build_result_checkers.copy()
@@ -244,16 +243,17 @@ class YosysNetlistBuild:
 
         return self._vunit_proj
 
-    def _find_module_for_vhdl_entity(self, entity_name: str) -> BaseModule | None:
+    def _find_vhdl_source_file(self, entity_name: str) -> tuple[BaseModule, HdlFile] | None:
         """
         Arguments:
             entity_name: Name of a VHDL entity.
 
-        Return: The module containing the VHDL source file for the given entity name, or
-            ``None`` if no such VHDL source file is found in the modules of this build.
+        Return: A tuple ``(module, hdl_file)`` for the VHDL source file that defines the given
+            entity name, or ``None`` if no such VHDL source file is found in the modules of
+            this build.
         """
-        modules_for_entity = [
-            module
+        matches = [
+            (module, hdl_file)
             for module in self.modules
             for hdl_file in module.get_synthesis_files(
                 include_verilog_files=False, include_systemverilog_files=False
@@ -261,10 +261,10 @@ class YosysNetlistBuild:
             if hdl_file.path.stem == entity_name
         ]
 
-        if len(modules_for_entity) > 1:
+        if len(matches) > 1:
             raise ValueError(f'Found multiple VHDL source files for entity "{entity_name}".')
 
-        return modules_for_entity[0] if modules_for_entity else None
+        return matches[0] if matches else None
 
     def _get_synthesis_files_in_compile_order(self) -> list[tuple[str, str]]:
         """
@@ -272,19 +272,20 @@ class YosysNetlistBuild:
             analyzed by GHDL.
         """
         vunit_proj = self._get_vunit_project()
-        top_level_module = self._find_module_for_vhdl_entity(self.top)
+        top_level_match = self._find_vhdl_source_file(self.top)
 
-        if top_level_module is None:
+        if top_level_match is None:
             # The 'top' is not a VHDL entity (e.g. it is a Verilog/SystemVerilog module, or the
             # design has no VHDL at all). There is no single VHDL top level to compute an
             # implementation subset relative to, so analyze all the VHDL source files in the
             # modules of this build instead.
             compile_order = vunit_proj.get_compile_order()
         else:
-            top_file_pattern = f"*/{self.top}.vhd"
-            top_source_file = vunit_proj.get_source_file(
-                top_file_pattern, library_name=top_level_module.library_name
-            )
+            # Look up the source file directly by its (unique, resolved) path, rather than
+            # reconstructing a file name pattern, since the VHDL file ending can be either
+            # '.vhd', '.vhdl' or '.vho' (see 'HdlFile.file_endings_mapping').
+            _, top_hdl_file = top_level_match
+            top_source_file = vunit_proj.get_source_file(str(top_hdl_file.path.resolve()))
             compile_order = vunit_proj.get_implementation_subset([top_source_file])
 
         return [
@@ -335,10 +336,13 @@ class YosysNetlistBuild:
         if not verilog_files:
             return None
 
+        # Paths are quoted, since Yosys splits unquoted command arguments on whitespace, which
+        # would otherwise break for paths containing spaces (e.g. common on Windows).
         include_flags = " ".join(
-            f"-I{to_yosys_path(directory)}" for directory in self._get_verilog_include_directories()
+            f'-I"{to_yosys_path(directory)}"'
+            for directory in self._get_verilog_include_directories()
         )
-        file_arguments = " ".join(to_yosys_path(file_path) for file_path in verilog_files)
+        file_arguments = " ".join(f'"{to_yosys_path(file_path)}"' for file_path in verilog_files)
 
         # The '-sv' flag enables the SystemVerilog parser, which is a superset of Verilog and
         # hence works fine for plain Verilog files as well.
@@ -431,6 +435,12 @@ class YosysNetlistBuild:
     def _get_ghdl_elaborate_command(
         self, workdir: Path, entity_name: str, library_name: str, generic_arguments: str
     ) -> str:
+        # Note: Unlike the paths used in '_get_read_verilog_command' and '_get_yosys_script',
+        # the 'workdir' path below is deliberately *not* quoted. The 'ghdl' command, provided by
+        # the 'ghdl-yosys-plugin', tokenizes its own argument line by naive whitespace splitting
+        # and does not strip surrounding quotes, so quoting here would actually break paths that
+        # contain spaces even worse than leaving them unquoted (verified empirically). This is a
+        # limitation of the plugin, not something that can be worked around from this side.
         parts = [
             "ghdl",
             f"--std={self._vhdl_standard}",
@@ -453,12 +463,13 @@ class YosysNetlistBuild:
         Return: A list of Yosys ``ghdl`` commands that elaborate the VHDL entities of this
             build, making them available to Yosys.
         """
-        top_level_module = self._find_module_for_vhdl_entity(self.top)
-        if top_level_module is not None:
+        top_level_match = self._find_vhdl_source_file(self.top)
+        if top_level_match is not None:
             # The 'top' is a VHDL entity: elaborate it directly. GHDL will pull in everything it
             # depends on, including any Verilog/SystemVerilog modules read by
             # '_get_read_verilog_command', which are bound by name to unbound VHDL component
             # instantiations.
+            top_level_module, _ = top_level_match
             entities = [(self.top, top_level_module)]
         else:
             if all_generics:
@@ -474,13 +485,14 @@ class YosysNetlistBuild:
             # bind to instantiations from the Verilog/SystemVerilog top level (or from other
             # VHDL entities). Any entity that ends up unused is pruned by Yosys.
             entities = []
-            for entity_name in self._vhdl_entities:
-                module = self._find_module_for_vhdl_entity(entity_name)
-                if module is None:
+            for entity_name in self.vhdl_entities:
+                match = self._find_vhdl_source_file(entity_name)
+                if match is None:
                     raise ValueError(
                         f'Could not find a VHDL source file for entity "{entity_name}" '
                         '(listed in "vhdl_entities").'
                     )
+                module, _ = match
                 entities.append((entity_name, module))
 
         generic_arguments = " ".join(
@@ -515,7 +527,7 @@ class YosysNetlistBuild:
 
         commands += [
             self._get_synth_command(),
-            f"tee -o {to_yosys_path(utilization_report_file)} stat",
+            f'tee -o "{to_yosys_path(utilization_report_file)}" stat',
         ]
 
         return "\n".join(commands) + "\n"

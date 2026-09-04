@@ -113,6 +113,14 @@ def test_build_result_checkers_list_should_be_copied():
     assert len(proj.build_result_checkers) == 1
 
 
+def test_vhdl_entities_list_should_be_copied():
+    vhdl_entities = ["apa"]
+    proj = YosysNetlistBuild(name="name", modules=[], vhdl_entities=vhdl_entities)
+
+    vhdl_entities.append("hest")
+    assert len(proj.vhdl_entities) == 1
+
+
 def test_top_name():
     assert YosysNetlistBuild(name="apa", modules=[]).top == "apa_top"
     assert YosysNetlistBuild(name="apa", modules=[], top="hest").top == "hest"
@@ -186,7 +194,8 @@ def test_get_read_verilog_command_with_verilog_and_systemverilog_files(tmp_path)
 
     assert command is not None
     assert command.startswith("read_verilog -sv ")
-    assert f"-I{src_path.resolve().as_posix()}" in command
+    # Paths are quoted, to handle paths containing spaces.
+    assert f'-I"{src_path.resolve().as_posix()}"' in command
     assert (src_path / "counter.v").resolve().as_posix() in command
     assert (src_path / "adder.sv").resolve().as_posix() in command
     # Header files are 'include'd by the source files, not passed as source arguments themselves.
@@ -236,6 +245,33 @@ def test_default_pre_create_hook_should_pass(yosys_project_test):
 
     modules = _create_module(yosys_project_test.modules_path)
     project = CustomYosysNetlistBuild(name="apa", modules=modules)
+    assert yosys_project_test.create(project)
+    yosys_project_test.mocked_run_ghdl.assert_called_once()
+
+
+def test_create_with_vhdl_extension_top_level_file(yosys_project_test):
+    # Regression test: the top-level file lookup used to hardcode the '.vhd' file ending,
+    # which meant it failed to find a top-level file using e.g. the '.vhdl' file ending.
+    create_file(
+        yosys_project_test.modules_path / "apa" / "src" / "apa_top.vhdl",
+        """\
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity apa_top is
+  port (
+    clk : in std_logic
+  );
+end entity;
+
+architecture a of apa_top is
+begin
+end architecture;
+""",
+    )
+    modules = get_modules(modules_folder=yosys_project_test.modules_path)
+    project = YosysNetlistBuild(name="apa", modules=modules)
+
     assert yosys_project_test.create(project)
     yosys_project_test.mocked_run_ghdl.assert_called_once()
 

@@ -8,68 +8,10 @@
 
 from __future__ import annotations
 
-
-class StringGenericValue:
-    """
-    Use this type for generic values of type ``string``.
-    """
-
-    def __init__(self, value: str) -> None:
-        """
-        Arguments:
-            value: A string of variable length with any content.
-        """
-        if not isinstance(value, str):
-            raise TypeError(
-                f"Expected {self.__class__.__name__} value to be of type str."
-                f' Got type="{type(value)}", value="{value}".'
-            )
-
-        if " " in value:
-            raise ValueError(
-                f'Expected {self.__class__.__name__} value to not contain spaces. Got "{value}".'
-            )
-
-        self.value = value
-
-    def __str__(self) -> str:
-        return self.value
-
-
-class BitVectorGenericValue:
-    """
-    Use this type for generic values of type ``std_logic_vector``.
-    """
-
-    def __init__(self, value: str) -> None:
-        """
-        Arguments:
-            value: A string of variable length containing only "1" or "0".
-        """
-        if not isinstance(value, str):
-            raise TypeError(
-                f"Expected {self.__class__.__name__} value to be of type str."
-                f' Got type="{type(value)}", value="{value}".'
-            )
-
-        for bit_value in value:
-            if bit_value not in ["1", "0"]:
-                raise ValueError(
-                    f'Expected {self.__class__.__name__} value to contain only "1" or "0".'
-                    f' Got "{value}".'
-                )
-
-        self.value = value
-
-    @property
-    def length(self) -> int:
-        """
-        The number of bits in the vector.
-        """
-        return len(self.value)
-
-    def __str__(self) -> str:
-        return self.value
+# 'StringGenericValue' and 'BitVectorGenericValue' are generic, backend-agnostic types (used by
+# e.g. 'tsfpga.yosys.project' as well) that historically lived in this module. They are now
+# defined in 'tsfpga.generics', and re-exported here for backward compatibility.
+from tsfpga.generics import BitVectorGenericValue, StringGenericValue
 
 
 def get_vivado_tcl_generic_value(
