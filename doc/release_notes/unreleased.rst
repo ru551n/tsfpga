@@ -11,4 +11,4 @@ Added
 * Add support for :ref:`netlist builds <yosys_netlist_build>` using Yosys and the
   ``ghdl-yosys-plugin``, as an open-source alternative to :class:`.VivadoNetlistProject`.
   Supports Xilinx, Intel and Microchip devices, mixed VHDL/Verilog/SystemVerilog designs, and
-  generic block RAM resource counting.
+  generic resource counting.
