@@ -12,3 +12,7 @@ Added
   ``ghdl-yosys-plugin``, as an open-source alternative to :class:`.VivadoNetlistProject`.
   Supports Xilinx, Intel and Microchip devices, mixed VHDL/Verilog/SystemVerilog designs, and
   generic resource counting.
+* Allow :class:`.YosysNetlistBuild` projects (in addition to :class:`.VivadoProject`) to be
+  returned from :meth:`.BaseModule.get_build_projects` and handled by
+  :class:`.BuildProjectList`, so a project's standard build script (e.g. ``build_fpga.py``) can
+  drive Yosys netlist builds the same way it drives Vivado builds.

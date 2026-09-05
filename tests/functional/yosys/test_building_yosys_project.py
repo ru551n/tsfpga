@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tsfpga.build_project_list import BuildProjectList, get_build_projects
 from tsfpga.examples.example_env import get_tsfpga_example_modules
 from tsfpga.module import get_modules
 from tsfpga.system_utils import create_file
@@ -451,3 +452,40 @@ def test_building_resource_counter_example_module_netlist_projects(tmp_path):
 
         build_result = project.build(project_path)
         assert build_result.success, project.name
+
+
+def test_building_resource_counter_example_module_netlist_projects_via_build_project_list(
+    tmp_path,
+):
+    """
+    Same as ``test_building_resource_counter_example_module_netlist_projects`` above, but drives
+    the build through :class:`.BuildProjectList` and the module-level :func:`.get_build_projects`
+    helper, exactly like ``tsfpga/examples/build_fpga.py`` does for a real project.
+    This proves that ``YosysNetlistBuild`` projects (netlist-only, no place & route) can be mixed
+    into the same generic build flow as ``VivadoProject`` projects, with no special-casing needed
+    by the caller.
+    """
+    modules = get_tsfpga_example_modules(names_include={"resource_counter"})
+
+    projects = get_build_projects(
+        modules=modules, project_filters=[], include_netlist_not_full_builds=True
+    )
+    assert projects, "Did not find the expected netlist build projects"
+
+    for project in projects:
+        # See note in the test above about why this is needed on this particular test machine.
+        project._ghdl_plugin_path = GHDL_PLUGIN_PATH  # noqa: SLF001
+        project._ghdl_prefix = GHDL_PREFIX  # noqa: SLF001
+
+    project_list = BuildProjectList(projects=projects)
+
+    assert project_list.create(projects_path=tmp_path, num_parallel_builds=2)
+    assert project_list.build(
+        projects_path=tmp_path, num_parallel_builds=2, num_threads_per_build=1
+    )
+
+    for project in projects:
+        project_path = BuildProjectList.get_build_project_path(
+            project=project, projects_path=tmp_path
+        )
+        assert project_path.exists()
