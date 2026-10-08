@@ -3,6 +3,7 @@ Breaking changes
 * Update/simplify :class:`.GitSimulationSubset` to use new test pattern feature in VUnit 5.0.0.
 * Move project filtering from :class:`.BuildProjectList` constructor
   to :func:`.get_build_project_list`.
+* Rename ``tsfpga.vivado.build_result.BuildResult`` class to :class:`.VivadoBuildResult`.
 
 Requires VUnit version 5.0.0.dev11 or later.
 
